@@ -27,6 +27,7 @@ pub enum ArchiveError {
     Unsupported { member: String, method: String },
     Encrypted(String),
     Zip(String),
+    Io(String),
 }
 
 impl fmt::Display for ArchiveError {
@@ -41,6 +42,7 @@ impl fmt::Display for ArchiveError {
             ),
             Self::Encrypted(m) => write!(f, "`{m}` is encrypted, which this plugin does not read"),
             Self::Zip(e) => write!(f, "not a readable zip: {e}"),
+            Self::Io(e) => write!(f, "{e}"),
         }
     }
 }
