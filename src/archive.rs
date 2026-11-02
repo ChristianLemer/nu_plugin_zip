@@ -174,10 +174,17 @@ pub fn read_member<R: Read + Seek>(
         }
     }
     let mut file = zip.by_index(index)?;
-    let mut bytes = Vec::with_capacity(usize::try_from(file.size()).unwrap_or(0));
+    let mut bytes = Vec::with_capacity(initial_capacity(file.size()));
     file.read_to_end(&mut bytes)
         .map_err(|e| ArchiveError::Zip(format!("`{wanted}`: {e}")))?;
     Ok(bytes)
+}
+
+/// The buffer to start a member's read with. The size comes from the archive's header,
+/// which anyone can forge: a few hundred bytes can claim exabytes, and reserving that
+/// aborts the process before a byte is read. Past 16 MiB the buffer grows as data comes.
+fn initial_capacity(declared: u64) -> usize {
+    usize::try_from(declared.min(1 << 24)).unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -335,5 +342,11 @@ mod tests {
             matches!(err, ArchiveError::Encrypted(ref n) if n == "s.txt"),
             "{err}"
         );
+    }
+
+    #[test]
+    fn declared_size_does_not_size_the_buffer() {
+        assert_eq!(initial_capacity(10), 10);
+        assert!(initial_capacity(1 << 62) <= 1 << 24);
     }
 }
