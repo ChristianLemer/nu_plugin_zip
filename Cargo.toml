@@ -36,6 +36,7 @@ chrono = "0.4"
 # musl builds and the bare `cargo build` promised in AGENTS.md both break.
 # zstd, bzip2 and lzma members are reported as unsupported, not linked in.
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs", "deflate64", "chrono"] }
+globset = "0.4"
 
 [profile.release]
 opt-level = 3
