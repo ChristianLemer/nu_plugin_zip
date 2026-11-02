@@ -81,15 +81,21 @@ impl SimplePluginCommand for ZipGlob {
     }
 }
 
-/// The names of every entry, file or directory, that `pattern` matches, sorted.
+/// The names of every entry, file or directory, that `pattern` matches, sorted. The
+/// pattern is tried as typed and normalized, so `/etc/*` reaches a stored absolute name
+/// while `./*.txt` still means the root.
 fn matching(entries: &[Entry], pattern: &str) -> Result<Vec<String>, globset::Error> {
-    let glob = GlobBuilder::new(&normalize(pattern))
-        .literal_separator(true)
-        .build()?
-        .compile_matcher();
+    let compile = |p: &str| {
+        GlobBuilder::new(p)
+            .literal_separator(true)
+            .build()
+            .map(|g| g.compile_matcher())
+    };
+    let raw = compile(pattern)?;
+    let normalized = compile(&normalize(pattern))?;
     Ok(entries
         .iter()
-        .filter(|e| glob.is_match(&e.name))
+        .filter(|e| raw.is_match(&e.name) || normalized.is_match(&e.name))
         .map(|e| e.name.clone())
         .collect())
 }
@@ -155,5 +161,20 @@ mod tests {
     #[test]
     fn invalid_pattern_is_an_error() {
         assert!(matching(&sample(), "[").is_err());
+    }
+
+    #[test]
+    fn absolute_pattern_reaches_stored_absolute_names() {
+        let mut all = sample();
+        for (name, is_dir) in [("/etc", true), ("/etc/x", false)] {
+            all.push(Entry {
+                name: name.into(),
+                is_dir,
+                size: 0,
+                modified: None,
+            });
+        }
+        assert_eq!(matching(&all, "/etc/*").expect("pattern"), ["/etc/x"]);
+        assert_eq!(matching(&all, "/*.txt").expect("pattern"), ["readme.txt"]);
     }
 }

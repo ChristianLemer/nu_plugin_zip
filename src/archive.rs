@@ -111,10 +111,11 @@ fn add_implied_dirs(all: &mut BTreeMap<String, Entry>, name: &str) {
     }
 }
 
-/// The direct children of `dir` (`""` for the root), like one level of `ls`.
+/// The direct children of `dir` (`""` for the root), like one level of `ls`. `dir` is
+/// taken as stored, without a trailing `/`. A leading `/` belongs to the first segment,
+/// so a stored `/etc/x` shows at the root as `/etc`, not hidden under an empty name.
 #[must_use]
 pub fn children<'a>(entries: &'a [Entry], dir: &str) -> Vec<&'a Entry> {
-    let dir = normalize(dir);
     let prefix = if dir.is_empty() {
         String::new()
     } else {
@@ -123,9 +124,14 @@ pub fn children<'a>(entries: &'a [Entry], dir: &str) -> Vec<&'a Entry> {
     entries
         .iter()
         .filter(|e| {
-            e.name
-                .strip_prefix(&prefix)
-                .is_some_and(|rest| !rest.is_empty() && !rest.contains('/'))
+            e.name.strip_prefix(&prefix).is_some_and(|rest| {
+                let rest = if prefix.is_empty() {
+                    rest.strip_prefix('/').unwrap_or(rest)
+                } else {
+                    rest
+                };
+                !rest.is_empty() && !rest.contains('/')
+            })
         })
         .collect()
 }
@@ -342,6 +348,17 @@ mod tests {
             matches!(err, ArchiveError::Encrypted(ref n) if n == "s.txt"),
             "{err}"
         );
+    }
+
+    #[test]
+    fn absolute_name_is_listed_from_the_root() {
+        let bytes = build(&[
+            ("/etc/x", CompressionMethod::Stored, b"x"),
+            ("ok.txt", CompressionMethod::Stored, b"y"),
+        ]);
+        let all = entries(&ZipArchive::new(Cursor::new(bytes)).expect("zip"));
+        assert_eq!(names(&children(&all, "")), ["/etc", "ok.txt"]);
+        assert_eq!(names(&children(&all, "/etc")), ["/etc/x"]);
     }
 
     #[test]

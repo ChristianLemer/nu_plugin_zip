@@ -48,6 +48,13 @@ otherwise, which is what `open` does. `--raw` skips parsing.
 **Paths** are relative to the archive root, use `/`, and accept a leading `./` or `/`. The
 archive argument is resolved against Nushell's current directory, not the plugin's.
 
+**Stored names are shown and reached as stored.** An archive can hold `../x` or `/etc/x`;
+nothing here resolves such a name against the host, and every verb tries a path exactly as
+stored before stripping a leading `./` or `/`. A leading `/` is part of the first segment, so
+`zip ls` shows `/etc` at the root, `zip ls a.zip /etc` lists it, and `zip glob a.zip '/etc/*'`
+matches in it. Hiding the one suspicious member from someone inspecting the archive would be
+the worst outcome.
+
 ## Out of scope
 
 - **Writing archives.** `to zip`, adding or deleting members. A different risk profile and a

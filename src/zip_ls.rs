@@ -88,10 +88,17 @@ impl SimplePluginCommand for ZipLs {
 }
 
 /// The direct children of `dir`, or `None` when the archive holds no such directory.
+/// The name is tried as stored first, as `zip open` does, so `/etc` reaches a stored
+/// absolute directory, then normalized.
 fn listing<'a>(entries: &'a [Entry], dir: &str) -> Option<Vec<&'a Entry>> {
-    let wanted = normalize(dir);
-    let exists = wanted.is_empty() || entries.iter().any(|e| e.is_dir && e.name == wanted);
-    exists.then(|| children(entries, &wanted))
+    let exact = dir.trim_end_matches('/');
+    let is_dir = |name: &str| entries.iter().any(|e| e.is_dir && e.name == name);
+    let wanted = if is_dir(exact) {
+        exact.to_string()
+    } else {
+        normalize(dir)
+    };
+    (wanted.is_empty() || is_dir(&wanted)).then(|| children(entries, &wanted))
 }
 
 /// One `ls`-shaped row per entry.
@@ -196,5 +203,15 @@ mod tests {
         assert_eq!(listing(&all, "./data/").map(|l| l.len()), Some(1));
         assert!(listing(&all, "data/a.json").is_none());
         assert!(listing(&all, "nope").is_none());
+    }
+
+    #[test]
+    fn listing_reaches_a_stored_absolute_dir() {
+        let all = [
+            entry("/etc", true, 0, false),
+            entry("/etc/x", false, 1, true),
+        ];
+        assert_eq!(listing(&all, "/etc").map(|l| l.len()), Some(1));
+        assert_eq!(listing(&all, "/etc/").map(|l| l.len()), Some(1));
     }
 }
