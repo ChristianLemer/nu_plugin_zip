@@ -98,6 +98,18 @@ a mute `Failed to send plugin call`, never a version.
 > there, because cargo ignores the `+nu-` part of a version. `cargo install nu_plugin_zip
 > --locked` is the right route only when that newest version is also yours.
 
+## Known issue: `source` and parsed members
+
+In a file loaded with `source`, a `zip open` that parses its member — `data.json` through
+`from json` — makes Nushell panic and exit. The plugin hands the bytes to the engine's parser,
+and Nushell mishandles that call from a sourced file; the same line works in the REPL, in a
+script run as `nu file.nu`, and inside a `def` or `do` block. Until Nushell fixes it, parse
+outside the call in sourced files:
+
+```nushell
+zip open --raw data.zip config.json | decode | from json
+```
+
 ## What it doesn't read
 
 - **zstd, bzip2 and lzma members.** Their decoders would pull C libraries into the build.
