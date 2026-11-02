@@ -1,5 +1,6 @@
 pub mod archive;
 pub mod cache;
+mod zip_ls;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
@@ -58,7 +59,7 @@ impl Plugin for ZipPlugin {
     }
 
     fn commands(&self) -> Vec<Box<dyn PluginCommand<Plugin = Self>>> {
-        vec![]
+        vec![Box::new(zip_ls::ZipLs)]
     }
 }
 
