@@ -1,3 +1,5 @@
+pub mod archive;
+
 use nu_plugin::{Plugin, PluginCommand};
 
 pub struct ZipPlugin;
