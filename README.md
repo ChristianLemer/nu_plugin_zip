@@ -1,22 +1,128 @@
 # nu_plugin_zip
 
-Browse zip archives from [Nushell](https://www.nushell.sh) like folders — `ls`, `glob` and
-`open` inside a zip, **in memory, never touching disk**.
+**Browse zip archives from [Nushell](https://www.nushell.sh) like folders — `ls`, `glob` and
+`open` inside a zip, in memory, never touching disk.**
 
 > **Status: in development.** Nothing is released yet. The design is in [SPEC.md](SPEC.md).
 
-```nu
-zip ls  data.zip reports/                  # like ls, inside the archive
+```nushell
+zip ls   data.zip reports                  # like ls, inside the archive
 zip glob data.zip 'reports/**/*.json'      # like glob
 zip open data.zip reports/2026.json        # like open: parsed by extension
 open data.zip                              # every member as a table, via `from zip`
 ```
+
+Nushell has no archive commands. `open data.zip` gives you bytes, and the usual way out is to
+extract to a directory, or to call `tar -xOf` or `unzip -p` once per member. This plugin reads
+the archive where it is, with the verbs you already use.
+
+## The commands
+
+**`zip ls <archive> [dir]`** — the direct children of a directory inside the archive, the root
+if you name none, with `ls`'s columns: `name` (full path inside the archive), `type`, `size`
+(uncompressed), `modified`. Directories the archive only implies — `a/b.txt` with no `a/`
+entry — show up as `dir` all the same.
+
+```nushell
+zip ls data.zip | where type == file | sort-by size --reverse
+zip ls data.zip reports/2026
+```
+
+**`zip glob <archive> <pattern>`** — the paths matching a pattern, as `glob` would: `*` stays
+within one path segment, `**` crosses them, case matters, and paths use `/` on every host.
+
+```nushell
+zip glob data.zip 'reports/*'            # one level
+zip glob data.zip '**/*.csv'             # any depth
+```
+
+**`zip open <archive> ...paths`** — members, parsed like `open` parses a file. A `.json` member
+goes through `from json`, a `.csv` through `from csv`: any `from` command in scope applies,
+including another plugin's. With no parser for the extension you get a string when the bytes
+are UTF-8, binary otherwise. `--raw` skips parsing.
+
+```nushell
+zip open data.zip config.json | get version
+zip open --raw data.zip images/logo.png | save logo.png
+
+# Several members in one call: a table of name and content
+zip open data.zip ...(zip glob data.zip 'reports/*.json') | get content
+```
+
+**`from zip`** — what `open data.zip` calls: every file member as a row of `name type size
+modified content`, the content as binary. Handy for small archives, or bytes that never were a
+file:
+
+```nushell
+http get https://example.com/bundle.zip | from zip | where name =~ '\.md$'
+```
+
+Member paths are relative to the archive root and accept a leading `./` or `/`. The archive
+path is relative to your current directory, as for any command.
 
 ## Nothing touches disk
 
 No command writes a file, not even a temporary one. Members are decompressed into memory and
 handed to Nushell as values, so the plugin is safe to use on data that must not be left behind
 in plaintext.
+
+## Stays loaded
+
+Reading many members costs one process, not one per member. Measured on 85 members, a call
+costs about a sixth of a `tar -xOf`, and most of that is decompression.
+
+To make that hold, the plugin keeps opened archives — up to 16, keyed by path and reopened when
+the file's size or modification time changes — and keeps itself running while it holds one.
+Nushell normally stops a plugin after 10 seconds idle; this one opts out of that while its cache
+is not empty, so a `plugin_gc` setting for `zip` in your config has no effect then. `plugin stop
+zip` still stops it.
+
+## Install
+
+```nushell
+http get https://github.com/ChristianLemer/nu_plugin_zip/raw/HEAD/install.nu
+| save -f install.nu
+nu install.nu --register
+```
+
+The installer reads the Nushell running it, downloads the matching build, verifies its
+checksum and registers it. No Rust toolchain. Then add `plugin use zip` to your config so the
+commands survive a restart — `plugin add` registers, it does not load.
+
+Builds exist for the current Nushell minor and the ones before it that are still in use — the
+exact list is [supported-nu.txt](supported-nu.txt). A plugin binary loads into exactly one
+Nushell minor, so **re-run the installer after every Nushell upgrade**: the failure otherwise is
+a mute `Failed to send plugin call`, never a version.
+
+> **Arrived from crates.io?** Only the build for the newest supported Nushell is published
+> there, because cargo ignores the `+nu-` part of a version. `cargo install nu_plugin_zip
+> --locked` is the right route only when that newest version is also yours.
+
+## What it doesn't read
+
+- **zstd, bzip2 and lzma members.** Their decoders would pull C libraries into the build.
+  Stored, deflate and deflate64 cover what common tools produce. Others are an error naming the
+  member and its method; listing the archive still works.
+- **Encrypted members.** An error naming the member. No password is ever asked for.
+- **Other formats.** tar, 7z, rar: a tar has no index, so reading one member means scanning the
+  whole file, a different design.
+
+Writing archives is out of scope too. [SPEC.md](SPEC.md) says why for each.
+
+## Contributing
+
+Issues and pull requests are welcome. The gates CI runs, plus the check that one source tree
+still serves every supported Nushell minor:
+
+```bash
+cargo fmt -- --check
+cargo clippy --all-targets --locked -- -D warnings
+cargo test --locked
+./scripts/test-nu-compat.sh --all
+```
+
+[AGENTS.md](AGENTS.md) has the setup for that last one. [SPEC.md](SPEC.md) holds the design
+decisions and their reasons.
 
 ## License
 
