@@ -1,0 +1,202 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify tag matches Cargo.toml version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          manifest=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          if [ "$tag" != "$manifest" ]; then
+            echo "::error::Tag $tag does not match Cargo.toml version $manifest"
+            exit 1
+          fi
+
+      # --strict only on a tag: that is the moment the metadata has to be exact.
+      # A workflow_dispatch publishes nothing, so it runs lax — otherwise the guard
+      # blocks the very gesture meant to exercise the packaging before a release.
+      - name: Verify nu metadata matches locked nu-plugin
+        run: ./scripts/check-nu-metadata.sh ${{ startsWith(github.ref, 'refs/tags/v') && '--strict' || '' }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo test --locked
+
+  build:
+    needs: test
+    strategy:
+      # One leg must not cancel the others. A tag push that got four platforms
+      # built should not start from zero because the fifth runner was starved.
+      fail-fast: false
+      matrix:
+        include:
+          # Static musl: one Linux artifact that runs on any distro — Arch,
+          # Debian, Alpine, NixOS. A glibc build made on ubuntu-latest would
+          # refuse to run on any older glibc. Viable here only because the
+          # dependency tree has no C libraries, just libc bindings.
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            bin: nu_plugin_zip
+            archive: tar.gz
+          # ARM Linux on a native ARM runner, free for public repositories.
+          # Cross-compiling it from x86 would be simpler to configure and would
+          # cost the thing that matters here: the job below installs and loads
+          # what it just built, and a cross-built binary cannot run on its
+          # builder. Nushell's own downloads put ARM Linux at eighteen times
+          # the demand of Intel macOS, which this matrix already covers.
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            bin: nu_plugin_zip
+            archive: tar.gz
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            bin: nu_plugin_zip
+            archive: tar.gz
+          # macos-latest is arm64. Intel needs an explicit image: macos-13 was
+          # retired in December 2025, and macos-15-intel is the last x86_64 macOS
+          # image GitHub will offer — it goes away in August 2027, after which
+          # this entry has to go too.
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            bin: nu_plugin_zip
+            archive: tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bin: nu_plugin_zip.exe
+            archive: zip
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install musl linker
+        if: endsWith(matrix.target, '-musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      # Downloaded archives lose the release page as context, so the Nushell
+      # version belongs in the filename.
+      - name: Resolve nu version
+        id: nu
+        shell: bash
+        run: |
+          locked=$(awk '/^name = "nu-plugin"$/{f=1;next} f && /^version = /{print $3; exit}' Cargo.lock | tr -d '"')
+          echo "version=$locked" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      # Nushell refuses to register a binary whose filename does not start with
+      # `nu_plugin_`, and `plugin use` takes the name from the file. Shipping an
+      # archive means the extracted binary is already called nu_plugin_zip —
+      # no rename step, and no way to get the name wrong.
+      - name: Package
+        id: pkg
+        shell: bash
+        run: |
+          name="nu_plugin_zip-nu${{ steps.nu.outputs.version }}-${{ matrix.target }}"
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/${{ matrix.bin }}" "dist/${{ matrix.bin }}"
+          # MIT requires the licence text to travel with the copies. A binary
+          # alone states neither what it is nor on what terms, which is exactly
+          # the question asked of a download six months later.
+          cp LICENSE README.md dist/
+          cd dist
+          # Named explicitly rather than globbing the directory: a missing file
+          # then fails the job instead of shipping a quieter archive.
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            7z a "../${name}.zip" "${{ matrix.bin }}" LICENSE README.md
+          else
+            tar czf "../${name}.tar.gz" "${{ matrix.bin }}" LICENSE README.md
+          fi
+          echo "Archive contains:"
+          if [ "${{ matrix.archive }}" = "zip" ]; then 7z l "../${name}.zip"; else tar tzf "../${name}.tar.gz"; fi
+          echo "archive=${name}.${{ matrix.archive }}" >> "$GITHUB_OUTPUT"
+
+      # Before anything is uploaded, the archive goes through the installer and
+      # the binary it leaves behind is loaded into the Nushell it claims to
+      # target. This runs on every host in the matrix: Windows and macOS are
+      # where a break hides until a colleague reports it.
+      - uses: hustcer/setup-nu@v3
+        with:
+          version: ${{ steps.nu.outputs.version }}
+
+      - name: Install the archive and load it
+        shell: bash
+        run: |
+          nu install.nu --archive "${{ steps.pkg.outputs.archive }}" --dir "$RUNNER_TEMP/zip"
+          nu --plugin-config "$RUNNER_TEMP/smoke.msgpackz" \
+             --plugins "$RUNNER_TEMP/zip/${{ matrix.bin }}" -- scripts/smoke.nu
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.pkg.outputs.archive }}
+          path: ${{ steps.pkg.outputs.archive }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Assemble and checksum
+        run: |
+          find artifacts -type f -exec mv -t . {} +
+          # Snapshot the list first: the loop must not iterate over the
+          # .sha256 files it creates.
+          archives=$(ls nu_plugin_zip-*)
+          for f in $archives; do
+            sha256sum "$f" > "$f.sha256"
+          done
+          echo "Assets that would be published:"
+          ls -l nu_plugin_zip-*
+
+      # A workflow_dispatch run stops here: everything above is exercised —
+      # the matrix, the packaging, the naming, the checksums — and nothing is
+      # created on GitHub. Only a tag publishes.
+      - name: Classify the tag
+        id: rel
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          v="${GITHUB_REF_NAME#v}"      # 0.3.0-beta.1+nu-0.115.1
+          core="${v%%+*}"               # 0.3.0-beta.1 — drop the build metadata,
+                                        # whose own `nu-` hyphen is not a prerelease
+          case "$core" in
+            *-*) echo "prerelease=true"  >> "$GITHUB_OUTPUT" ;;
+            *)   echo "prerelease=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Create release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          prerelease: ${{ steps.rel.outputs.prerelease }}
+          files: nu_plugin_zip-*

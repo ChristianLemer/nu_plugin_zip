@@ -1,0 +1,15 @@
+# Nushell versions this source tree is tested against, one per line.
+#
+# Each line is the exact nu-plugin / nu-protocol version CI repins to and the
+# exact Nushell it loads the result into — a binary serves one minor, so the
+# minors listed here are the minors a release ships a variant for.
+#
+# Read by scripts/test-nu-compat.sh and .github/workflows/ci.yml. To add or drop
+# a minor, edit this file: nothing else needs to know the list.
+#
+# A newer minor can need a newer Rust: its nu-plugin declares a rust-version, and
+# Cargo.toml's rust-version must be at least that. Check it when adding a line.
+0.113.1
+0.114.1
+0.115.1
+0.116.0

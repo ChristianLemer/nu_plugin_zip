@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=https://docs.coderabbit.ai/coderabbit.schema.json
+#
+# Off by default, summoned when wanted: `@coderabbitai review` on a pull request. The first
+# review of a branch happens before its first push instead — see AGENTS.md. This bot earns its
+# place as a second opinion on a change a colleague will run, because it is a different system
+# with different blind spots.
+#
+# Deleting this file would not quiet it. The app is installed on the account, and with no
+# config it falls back to defaults noisier than anything it replaced.
+reviews:
+  auto_review:
+    enabled: false
+  high_level_summary: false
+  review_status: false
+  poem: false
+  collapse_walkthrough: true
+  request_changes_workflow: false
+  enable_prompt_for_ai_agents: false
+
+chat:
+  auto_reply: false
