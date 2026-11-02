@@ -39,7 +39,9 @@ every archive tool shows them.
 matching is case-sensitive, and paths use `/` whatever the host.
 
 **`zip open` parses like `open`.** For `data/a.json` it calls the engine's `from json` on the
-member's bytes, so any `from` command in scope — built-in or another plugin's — applies. With no
+member's bytes, so any `from` command in scope — built-in or another plugin's — applies. The
+bytes go as a byte stream of unknown type, which is how `open` hands over a file: sent as a
+binary value, they would be refused by the parsers that take text, `from json` first. With no
 `from <ext>` in scope the bytes come back as a string when they are valid UTF-8, binary
 otherwise, which is what `open` does. `--raw` skips parsing.
 
