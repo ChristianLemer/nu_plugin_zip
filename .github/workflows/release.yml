@@ -22,7 +22,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Verify tag matches Cargo.toml version
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         run: |
           tag="${GITHUB_REF_NAME#v}"
           manifest=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
@@ -35,7 +35,7 @@ jobs:
       # A workflow_dispatch publishes nothing, so it runs lax — otherwise the guard
       # blocks the very gesture meant to exercise the packaging before a release.
       - name: Verify nu metadata matches locked nu-plugin
-        run: ./scripts/check-nu-metadata.sh ${{ startsWith(github.ref, 'refs/tags/v') && '--strict' || '' }}
+        run: ./scripts/check-nu-metadata.sh ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && '--strict' || '' }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -189,10 +189,12 @@ jobs:
 
       # A workflow_dispatch run stops here: everything above is exercised —
       # the matrix, the packaging, the naming, the checksums — and nothing is
-      # created on GitHub. Only a tag publishes.
+      # created on GitHub. Only a tag *push* publishes. Testing the ref alone
+      # is not enough: `gh workflow run --ref <tag>` dispatches with the tag as
+      # its ref, and would rebuild and re-upload onto an existing release.
       - name: Classify the tag
         id: rel
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         run: |
           v="${GITHUB_REF_NAME#v}"      # 0.3.0-beta.1+nu-0.115.1
           core="${v%%+*}"               # 0.3.0-beta.1 — drop the build metadata,
@@ -203,7 +205,7 @@ jobs:
           esac
 
       - name: Create release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
