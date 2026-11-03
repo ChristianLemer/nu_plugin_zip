@@ -7,7 +7,7 @@ use nu_protocol::{
     Signature, Span, Spanned, SyntaxShape, Type, Value,
 };
 
-use crate::archive::{normalize, read_member};
+use crate::archive::read_member;
 use crate::{resolve, ZipPlugin};
 
 pub struct ZipOpen;
@@ -120,7 +120,7 @@ impl SimplePluginCommand for ZipOpen {
             .map(|(p, content)| {
                 Value::record(
                     record! {
-                        "name" => Value::string(normalize(&p.item), span),
+                        "name" => Value::string(&p.item, span),
                         "content" => content,
                     },
                     span,

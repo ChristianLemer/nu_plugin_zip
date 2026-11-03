@@ -40,6 +40,7 @@ assert equal (zip open --raw $z readme.txt) 0x[68 65 6c 6c 6f 0a]
 let several = (zip open $z data/a.json readme.txt)
 assert equal ($several | get name) [data/a.json readme.txt]
 assert equal ($several | get 0.content) {x: 1}
+assert equal (zip open $z ./data/a.json /readme.txt | get name) [./data/a.json /readme.txt]
 assert (try { zip open $z nope.txt; false } catch { true }) "a missing member must be an error"
 assert (try { zip open $z data; false } catch { true }) "a directory must be an error"
 

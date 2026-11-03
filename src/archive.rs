@@ -152,21 +152,28 @@ pub fn read_member<R: Read + Seek>(
         .index_for_name(name)
         .or_else(|| zip.index_for_name(&wanted))
     else {
-        let as_dir = format!("{wanted}/");
-        let is_dir = zip.file_names().flatten().any(|n| n.starts_with(&as_dir));
-        return Err(if is_dir && !wanted.is_empty() {
-            ArchiveError::IsDir(wanted)
+        let prefixes = [
+            format!("{}/", name.trim_end_matches('/')),
+            format!("{wanted}/"),
+        ];
+        let is_dir = zip.file_names().flatten().any(|n| {
+            prefixes
+                .iter()
+                .any(|p| p != "/" && n.starts_with(p.as_str()))
+        });
+        return Err(if is_dir {
+            ArchiveError::IsDir(name.to_string())
         } else {
-            ArchiveError::NotFound(wanted)
+            ArchiveError::NotFound(name.to_string())
         });
     };
     {
         let data = zip.by_index_data(index)?;
         if data.is_dir() {
-            return Err(ArchiveError::IsDir(wanted));
+            return Err(ArchiveError::IsDir(name.to_string()));
         }
         if data.encrypted() {
-            return Err(ArchiveError::Encrypted(wanted));
+            return Err(ArchiveError::Encrypted(name.to_string()));
         }
         let method = data.compression();
         if !matches!(
@@ -174,7 +181,7 @@ pub fn read_member<R: Read + Seek>(
             CompressionMethod::Stored | CompressionMethod::Deflated | CompressionMethod::Deflate64
         ) {
             return Err(ArchiveError::Unsupported {
-                member: wanted,
+                member: name.to_string(),
                 method: method.to_string(),
             });
         }
@@ -182,7 +189,7 @@ pub fn read_member<R: Read + Seek>(
     let mut file = zip.by_index(index)?;
     let mut bytes = Vec::with_capacity(initial_capacity(file.size()));
     file.read_to_end(&mut bytes)
-        .map_err(|e| ArchiveError::Zip(format!("`{wanted}`: {e}")))?;
+        .map_err(|e| ArchiveError::Zip(format!("`{name}`: {e}")))?;
     Ok(bytes)
 }
 
@@ -365,5 +372,19 @@ mod tests {
     fn declared_size_does_not_size_the_buffer() {
         assert_eq!(initial_capacity(10), 10);
         assert!(initial_capacity(1 << 62) <= 1 << 24);
+    }
+
+    #[test]
+    fn errors_name_the_path_as_given() {
+        let err = read_member(&mut sample(), "/nope.txt").expect_err("missing");
+        assert!(
+            matches!(err, ArchiveError::NotFound(ref n) if n == "/nope.txt"),
+            "{err}"
+        );
+        let err = read_member(&mut sample(), "./data/").expect_err("dir");
+        assert!(
+            matches!(err, ArchiveError::IsDir(ref n) if n == "./data/"),
+            "{err}"
+        );
     }
 }
