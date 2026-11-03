@@ -145,6 +145,9 @@ cargo test --locked
 ./scripts/test-nu-compat.sh --all
 ```
 
+A change to `install.nu` adds a fifth, which needs no build and no network:
+`nu scripts/test-install.nu`. CI runs it under every supported minor.
+
 **One session per worktree.** Two agent sessions in the same worktree overwrite each other's
 working copy. A second session gets its own `git worktree add`.
 
