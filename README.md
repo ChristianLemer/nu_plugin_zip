@@ -46,8 +46,12 @@ zip open data.zip config.json | get version
 zip open --raw data.zip images/logo.png | save logo.png
 
 # Several members in one call: a table of name and content
-zip open data.zip ...(zip glob data.zip 'reports/*.json') | get content
+zip open data.zip reports/2025.json reports/2026.json | get content
 ```
+
+One path gives the member itself, two or more give a table. The shape follows the number of
+paths, so a spread list (`...$paths`) holding a single path returns the bare member, and an
+empty one is an error.
 
 **`from zip`** — what `open data.zip` calls: every file member as a row of `name type size
 modified content`, the content as binary. Handy for small archives, or bytes that never were a
