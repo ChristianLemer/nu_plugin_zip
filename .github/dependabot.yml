@@ -1,13 +1,20 @@
 # Actions are pinned by commit SHA, so a moved tag cannot change what runs.
 # Dependabot keeps the pins current: each bump is a pull request whose diff
-# names the old and new commit, reviewed like any other change. One exception:
-# dtolnay/rust-toolchain is pinned on its `stable` branch, not a version tag,
-# which Dependabot does not track. Its code rarely changes and the Rust it
-# installs is chosen by its inputs, so the pin can age; refresh it by hand when
-# touching the workflows.
+# names the old and new commit, reviewed like any other change.
+#
+# All the actions move together, in one pull request a month: one release
+# rehearsal exercises them together, and one pull request per action is noise.
+#
+# One exception: dtolnay/rust-toolchain is pinned on its `stable` branch, not
+# a version tag, which Dependabot does not track. Its code rarely changes and
+# the Rust it installs is chosen by its inputs, so the pin can age; refresh it
+# by hand when touching the workflows.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
