@@ -155,7 +155,10 @@ mod tests {
 
     #[test]
     fn matching_is_case_sensitive() {
-        assert!(matching(&sample(), "*.TXT").expect("pattern").is_empty());
+        assert_eq!(
+            matching(&sample(), "*.TXT").expect("pattern"),
+            Vec::<String>::new()
+        );
     }
 
     #[test]
