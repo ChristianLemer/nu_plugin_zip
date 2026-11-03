@@ -92,9 +92,12 @@ def main [
     # API returns them — so the first match is the right one on both axes.
     let asset = ($hit | first)
     print $"Found  ($asset.name)  [($asset.tag)]"
+    # Before the dry-run returns: a release a real run would refuse for want
+    # of a checksum must not be reported as installable.
+    let sum = (checksum-for $assets $asset)
     if $dry_run { print $"\(dry-run) would install ($bin)"; return {asset: $asset.name, dest: $bin} }
 
-    {asset: $asset, sum: (checksum-for $assets $asset)}
+    {asset: $asset, sum: $sum}
   }
 
   if $dry_run { print $"\(dry-run) would install ($bin)"; return {dest: $bin} }
