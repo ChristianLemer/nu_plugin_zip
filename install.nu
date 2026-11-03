@@ -15,6 +15,7 @@ def main [
   --archive: path    # install this local archive instead of downloading
   --register         # run `plugin add` once installed
   --dry-run          # show what would happen, write nothing
+  --prerelease       # also consider pre-releases (-beta, -rc), for testers
 ] {
   let os   = $nu.os-info
   let key  = $"($os.name)-($os.arch)"
@@ -51,11 +52,8 @@ def main [
     let auth = if ($env.GITHUB_TOKEN? | default "" | is-empty) { [] } else {
       [Authorization $"Bearer ($env.GITHUB_TOKEN)"]
     }
-    let assets = (
-      http get --headers $auth $"https://api.github.com/repos/($repo)/releases?per_page=100"
-      | each {|r| $r.assets | each {|a| {tag: $r.tag_name, name: $a.name, url: $a.browser_download_url}}}
-      | flatten
-    )
+    let assets = (candidates --prerelease=$prerelease
+      (http get --headers $auth $"https://api.github.com/repos/($repo)/releases?per_page=100"))
     let esc = ($minor | str replace --all "." '\.')
     let hit = ($targets | each {|t|
         $assets | where name =~ ('nu' + $esc + '\.[0-9]+-' + $t + '\.(tar\.gz|zip)$')
@@ -142,4 +140,15 @@ def main [
     print $"To enable it:\n  plugin add ($bin)\n  plugin use zip"
   }
   {dest: $bin}
+}
+
+# Every asset of the releases a user should get, newest release first, as the
+# API orders them. A draft is never one, and a pre-release only on request:
+# the API lists both among the rest, and whoever runs this script without
+# asking would otherwise install a beta the moment one is published.
+export def candidates [releases: list, --prerelease] {
+  $releases
+  | where {|r| not $r.draft and ($prerelease or not $r.prerelease) }
+  | each {|r| $r.assets | each {|a| {tag: $r.tag_name, name: $a.name, url: $a.browser_download_url}}}
+  | flatten
 }
