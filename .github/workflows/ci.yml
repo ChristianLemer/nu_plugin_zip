@@ -10,6 +10,9 @@ on:
     tags: ["v*"]
   pull_request:
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -25,6 +28,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Verify nu metadata matches locked nu-plugin
         if: runner.os == 'Linux'
         run: ./scripts/check-nu-metadata.sh
@@ -48,6 +53,8 @@ jobs:
       versions: ${{ steps.list.outputs.versions }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - id: list
         run: |
           versions=$(grep -v '^#' supported-nu.txt | grep . | jq -R . | jq -sc .)
@@ -68,6 +75,8 @@ jobs:
     name: nu-compat (${{ matrix.nu }})
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
