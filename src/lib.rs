@@ -92,8 +92,8 @@ mod tests {
 
     #[test]
     fn relative_archive_resolves_against_the_shell_cwd() {
-        let dir =
-            std::env::temp_dir().join(format!("nu_plugin_zip-{}-resolve", std::process::id()));
+        let scratch = crate::test_support::Scratch::new("resolve");
+        let dir = scratch.join("");
         std::fs::create_dir_all(dir.join("sub")).expect("scratch dir");
         std::fs::write(dir.join("sub/a.zip"), b"").expect("touch");
         let canonical = dir.join("sub/a.zip").canonicalize().expect("canonical");
@@ -108,5 +108,45 @@ mod tests {
             canonical
         );
         assert!(resolve_in(&dir, "missing.zip").is_err());
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod test_support {
+    use std::path::{Path, PathBuf};
+
+    /// A fresh directory for one test, removed when the test ends, passed or
+    /// failed: a panic unwinds through `Drop`. Named per process and per test,
+    /// so tests running in parallel never share one.
+    pub(crate) struct Scratch(PathBuf);
+
+    impl Scratch {
+        pub(crate) fn new(test: &str) -> Self {
+            let dir =
+                std::env::temp_dir().join(format!("nu_plugin_zip-{}-{test}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).expect("scratch dir");
+            Self(dir)
+        }
+
+        pub(crate) fn join(&self, path: impl AsRef<Path>) -> PathBuf {
+            self.0.join(path)
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn scratch_is_removed_when_dropped() {
+        let scratch = Scratch::new("drop");
+        let dir = scratch.join("");
+        std::fs::write(scratch.join("f"), b"x").expect("write");
+        assert!(dir.is_dir());
+        drop(scratch);
+        assert!(!dir.exists());
     }
 }

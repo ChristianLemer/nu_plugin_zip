@@ -131,18 +131,11 @@ impl ArchiveCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::Scratch;
     use std::io::Write;
     use std::path::PathBuf;
     use zip::write::SimpleFileOptions;
     use zip::ZipWriter;
-
-    /// A fresh directory per test, so tests running in parallel never share a file.
-    fn scratch(test: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("nu_plugin_zip-{}-{test}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("scratch dir");
-        dir
-    }
 
     fn write_zip(path: &Path, members: &[&str]) {
         let mut w = ZipWriter::new(File::create(path).expect("create zip"));
@@ -162,7 +155,8 @@ mod tests {
 
     #[test]
     fn reuses_open_archive() {
-        let path = scratch("reuse").join("a.zip");
+        let dir = Scratch::new("reuse");
+        let path = dir.join("a.zip");
         write_zip(&path, &["one.txt"]);
         let mut cache = ArchiveCache::new(16);
         assert!(cache.is_empty());
@@ -174,7 +168,8 @@ mod tests {
 
     #[test]
     fn reopens_after_change() {
-        let path = scratch("change").join("a.zip");
+        let dir = Scratch::new("change");
+        let path = dir.join("a.zip");
         write_zip(&path, &["one.txt"]);
         let mut cache = ArchiveCache::new(16);
         assert_eq!(names(&mut cache, &path), ["one.txt"]);
@@ -188,7 +183,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn reopens_after_replacement_with_same_size_and_mtime() {
-        let dir = scratch("replace");
+        let dir = Scratch::new("replace");
         let path = dir.join("a.zip");
         write_zip(&path, &["one.txt"]);
         let mut cache = ArchiveCache::new(16);
@@ -208,7 +203,7 @@ mod tests {
 
     #[test]
     fn evicts_lru_beyond_capacity() {
-        let dir = scratch("evict");
+        let dir = Scratch::new("evict");
         let paths: Vec<PathBuf> = ["a", "b", "c"]
             .iter()
             .map(|n| dir.join(format!("{n}.zip")))
@@ -229,7 +224,8 @@ mod tests {
 
     #[test]
     fn missing_file_is_an_error() {
-        let path = scratch("missing").join("nope.zip");
+        let dir = Scratch::new("missing");
+        let path = dir.join("nope.zip");
         let mut cache = ArchiveCache::new(16);
         assert!(cache.with_archive(&path, |_| ()).is_err());
         assert!(cache.is_empty());
