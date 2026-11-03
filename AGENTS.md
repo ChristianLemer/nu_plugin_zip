@@ -136,7 +136,9 @@ need a newer Rust, raise `rust-version` in `Cargo.toml` to match.
 
 **Run the CI gates before committing.** `cargo fmt -- --check` is a gate, not a suggestion, and
 it is the one that gets forgotten; clippy runs stricter in CI than a bare `cargo clippy` does
-locally. The four, in the form CI runs them — the last one needs the mise shells above:
+locally. CI also installs the *current* stable Rust, and each release brings new lints: a
+machine whose default toolchain lags passes locally and fails there (Rust 1.99 did that with
+`assert_is_empty`). Run clippy as `cargo +stable clippy …` after `rustup update stable`. The four, in the form CI runs them — the last one needs the mise shells above:
 
 ```bash
 cargo fmt -- --check
