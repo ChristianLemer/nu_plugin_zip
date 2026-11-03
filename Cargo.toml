@@ -16,7 +16,9 @@ keywords = ["nushell", "plugin", "zip", "archive"]
 categories = ["command-line-utilities", "compression"]
 # What a `cargo install` user needs is the source, the manifest, the licence and
 # the two documents that explain the thing. The rest is how this repository is
-# run, and shipping it to every installer is noise.
+# run, and shipping it to every installer is noise. tests/fixtures/ stays in: a
+# unit test reads sample.zip, and a published crate whose tests do not compile
+# is a broken crate, for 813 bytes.
 exclude = [
   ".github/",
   ".coderabbit.yaml",
@@ -24,7 +26,6 @@ exclude = [
   "AGENTS.md",
   "orca.yaml",
   "scripts/",
-  "tests/fixtures/",
   "*.code-workspace",
 ]
 
