@@ -1,12 +1,10 @@
 # Check install.nu without a network or a published release.
-#
 # The release workflow runs the installer for real on every packaged archive,
 # but only along the happy path. This script covers what that path cannot
 # reach: which releases are eligible, which checksum belongs to an asset, and
 # what a bad archive leaves behind. The selection is fed crafted API answers;
 # the archives are built here, in a throwaway directory, and installed by
 # running install.nu itself.
-#
 #   nu scripts/test-install.nu
 use std/assert
 
@@ -59,6 +57,14 @@ def main [] {
   let run = (do $install ($work | path join good.tar.gz) ($work | path join dest))
   assert equal $run.exit_code 0 $run.stderr
   assert equal (($work | path join dest $exe) | path type) file
+  if $nu.os-info.name != "windows" {
+    mkdir ($work | path join link)
+    ^ln -s /etc/hostname ($work | path join link $exe)
+    tar -czf ($work | path join link.tar.gz) -C ($work | path join link) $exe
+    let run = (do $install ($work | path join link.tar.gz) ($work | path join dest2))
+    assert ($run.exit_code != 0) "a symlink must not be installed as the plugin"
+    assert (not (($work | path join dest2 $exe) | path exists --no-symlink)) "the symlink must not reach the destination"
+  }
   "not an archive" | save ($work | path join bad.tar.gz)
   let run = (do $install ($work | path join bad.tar.gz) ($work | path join dest3))
   assert ($run.exit_code != 0) "a corrupt archive must fail"

@@ -129,7 +129,14 @@ def main [
     let extracted = ($stage | path join extracted)
     mkdir $extracted
     ^$tar -xf $file -C $extracted
-    mv ($extracted | path join $exe) $bin
+    # The binary must be a regular file. An archive whose entry is a symlink
+    # would otherwise install a link to whatever it names, and `--register`
+    # would run that.
+    let found = ($extracted | path join $exe)
+    if ($found | path type) != "file" {
+      error make {msg: $"($exe) is missing from the archive, or is not a regular file."}
+    }
+    mv $found $bin
     null
   } catch {|e| $e }
   rm --recursive --force $stage
