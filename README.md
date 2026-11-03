@@ -83,6 +83,9 @@ Nushell normally stops a plugin after 10 seconds idle; this one opts out of that
 is not empty, so a `plugin_gc` setting for `zip` in your config has no effect then. `plugin stop
 zip` still stops it.
 
+A cached archive keeps its file open, so the drive holding it cannot be unmounted or ejected
+while the plugin runs: the system reports it busy. `plugin stop zip` closes everything.
+
 ## Install
 
 ```nushell
