@@ -23,9 +23,11 @@ def main [
   let exe  = if $os.name == "windows" { "nu_plugin_zip.exe" } else { "nu_plugin_zip" }
   let bin  = ($dest | path join $exe)
 
-  let file = if $archive != null {
+  # Where the archive comes from: a local path, or a release asset and its
+  # checksum. Nothing is downloaded until the staging directory exists.
+  let source = if $archive != null {
     print $"Nushell ((version).version) · ($key) · local archive"
-    $archive
+    {path: $archive}
   } else {
     # Preference order, not a single value: CI falls back to a gnu build if the
     # musl link ever fails, and a musl-only client would then find nothing.
@@ -92,15 +94,7 @@ def main [
     print $"Found  ($asset.name)  [($asset.tag)]"
     if $dry_run { print $"\(dry-run) would install ($bin)"; return {asset: $asset.name, dest: $bin} }
 
-    let tmp = ($nu.temp-dir | path join $asset.name)
-    http get $asset.url | save --force --raw $tmp
-    # GitHub serves the .sha256 as binary; decode before treating it as text.
-    let want = (http get (checksum-for $assets $asset) | decode utf-8 | str trim | split row " " | first)
-    if $want != (open --raw $tmp | hash sha256) {
-      error make {msg: $"Checksum mismatch for ($asset.name) — refusing to install."}
-    }
-    print "Checksum verified"
-    $tmp
+    {asset: $asset, sum: (checksum-for $assets $asset)}
   }
 
   if $dry_run { print $"\(dry-run) would install ($bin)"; return {dest: $bin} }
@@ -115,15 +109,33 @@ def main [
   # is staged and only the binary moves. Extracting one member by name would be
   # shorter and is not portable: the GNU tar on many Linux boxes cannot read a
   # zip at all, let alone select from one.
-  # Unique per run. A fixed name under a shared temp directory is another
-  # user's directory on a multi-user box, where removing it fails under the
-  # sticky bit, and it is a race between two runs of this script.
-  let stage = ($nu.temp-dir | path join $"nu_plugin_zip-(random chars --length 8)")
-  mkdir $stage
-  ^$tar -xf $file -C $stage
-  mv ($stage | path join $exe) $bin
+  # Everything temporary — the download and the extraction — lives in one
+  # directory created for this run by `mktemp`: private to this user, never
+  # an existing path another user could have prepared, so the bytes checked
+  # are the bytes extracted. It is removed whether the install succeeds or not.
+  let stage = (mktemp --directory --tmpdir "nu_plugin_zip-XXXXXXXX")
+  let failure = try {
+    let file = if "path" in $source { $source.path } else {
+      let download = ($stage | path join $source.asset.name)
+      http get $source.asset.url | save --raw $download
+      # GitHub serves the .sha256 as binary; decode before treating it as text.
+      let want = (http get $source.sum | decode utf-8 | str trim | split row " " | first)
+      if $want != (open --raw $download | hash sha256) {
+        error make {msg: $"Checksum mismatch for ($source.asset.name) — refusing to install."}
+      }
+      print "Checksum verified"
+      $download
+    }
+    let extracted = ($stage | path join extracted)
+    mkdir $extracted
+    ^$tar -xf $file -C $extracted
+    mv ($extracted | path join $exe) $bin
+    null
+  } catch {|e| $e }
   rm --recursive --force $stage
-  if $archive == null { rm --force $file }
+  if $failure != null {
+    error make {msg: $"Install failed, nothing changed: ($failure.msg)"}
+  }
 
   # Keep a copy beside the binary: re-running after a Nushell upgrade is then a
   # local command, with no URL to find again.

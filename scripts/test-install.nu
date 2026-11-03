@@ -43,5 +43,27 @@ def main [] {
   assert equal (checksum-for $all $old) $"https://example.invalid/v0.1.0+nu-0.115.1/($archive).sha256"
   let bare = ($all | where tag == v0.2.0+nu-0.115.1 | first)
   assert (try { checksum-for $all $bare; false } catch { true }) "a release without a checksum must be refused"
+  # Local archives, through the real entry point: a good one installs, a bad
+  # one fails and leaves no staging directory behind.
+  let work = (mktemp --directory)
+  let exe = if $nu.os-info.name == "windows" { "nu_plugin_zip.exe" } else { "nu_plugin_zip" }
+  let install = {|archive: string, dest: string|
+    ^$nu.current-exe --no-config-file ($env.FILE_PWD | path join .. install.nu) --archive $archive --dir $dest | complete
+  }
+  let staged = {|| ls $nu.temp-dir | where name =~ 'nu_plugin_zip-' | get name }
+  let before = (do $staged)
+
+  mkdir ($work | path join good)
+  "#!/bin/sh\n" | save ($work | path join good $exe)
+  tar -czf ($work | path join good.tar.gz) -C ($work | path join good) $exe
+  let run = (do $install ($work | path join good.tar.gz) ($work | path join dest))
+  assert equal $run.exit_code 0 $run.stderr
+  assert equal (($work | path join dest $exe) | path type) file
+  "not an archive" | save ($work | path join bad.tar.gz)
+  let run = (do $install ($work | path join bad.tar.gz) ($work | path join dest3))
+  assert ($run.exit_code != 0) "a corrupt archive must fail"
+
+  assert equal (do $staged) $before "a failed install must not leave a staging directory behind"
+  rm -r -f $work
   print "install.nu ok"
 }
