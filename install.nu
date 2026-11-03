@@ -94,15 +94,12 @@ def main [
 
     let tmp = ($nu.temp-dir | path join $asset.name)
     http get $asset.url | save --force --raw $tmp
-    let sum = ($assets | where name == $"($asset.name).sha256")
-    if not ($sum | is-empty) {
-      # GitHub serves the .sha256 as binary; decode before treating it as text.
-      let want = (http get ($sum | first | get url) | decode utf-8 | str trim | split row " " | first)
-      if $want != (open --raw $tmp | hash sha256) {
-        error make {msg: $"Checksum mismatch for ($asset.name) — refusing to install."}
-      }
-      print "Checksum verified"
+    # GitHub serves the .sha256 as binary; decode before treating it as text.
+    let want = (http get (checksum-for $assets $asset) | decode utf-8 | str trim | split row " " | first)
+    if $want != (open --raw $tmp | hash sha256) {
+      error make {msg: $"Checksum mismatch for ($asset.name) — refusing to install."}
     }
+    print "Checksum verified"
     $tmp
   }
 
@@ -151,4 +148,17 @@ export def candidates [releases: list, --prerelease] {
   | where {|r| not $r.draft and ($prerelease or not $r.prerelease) }
   | each {|r| $r.assets | each {|a| {tag: $r.tag_name, name: $a.name, url: $a.browser_download_url}}}
   | flatten
+}
+
+# The checksum published beside `asset`, in the same release. Archive names
+# repeat from one release to the next, so a lookup by name alone could check
+# the download against another release's file. A release without one is
+# refused: every release this repository cuts carries them, so a missing one
+# means something went wrong, not that checking is optional.
+export def checksum-for [assets: list, asset: record] {
+  let sum = ($assets | where tag == $asset.tag and name == $"($asset.name).sha256")
+  if ($sum | is-empty) {
+    error make {msg: $"No checksum published for ($asset.name) in ($asset.tag) — refusing to install."}
+  }
+  $sum | first | get url
 }
