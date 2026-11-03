@@ -65,6 +65,17 @@ def main [] {
     assert ($run.exit_code != 0) "a symlink must not be installed as the plugin"
     assert (not (($work | path join dest2 $exe) | path exists --no-symlink)) "the symlink must not reach the destination"
   }
+  if $nu.os-info.name != "windows" {
+    # A failure keeps its detail: which file could not be written, not only why.
+    let locked = ($work | path join locked)
+    mkdir $locked
+    ^chmod 555 $locked
+    let run = (do $install ($work | path join good.tar.gz) $locked)
+    ^chmod 755 $locked
+    assert ($run.exit_code != 0) "an unwritable destination must fail"
+    assert ($run.stderr | str contains $locked) $"the error must name the destination:\n($run.stderr)"
+  }
+
   "not an archive" | save ($work | path join bad.tar.gz)
   let run = (do $install ($work | path join bad.tar.gz) ($work | path join dest3))
   assert ($run.exit_code != 0) "a corrupt archive must fail"

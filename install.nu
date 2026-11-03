@@ -117,9 +117,15 @@ def main [
   let failure = try {
     let file = if "path" in $source { $source.path } else {
       let download = ($stage | path join $source.asset.name)
-      http get $source.asset.url | save --raw $download
+      # Each step names what it acted on: the error that reaches the user is
+      # this one's message, and Nushell's own leaves out the URL or the path.
+      try { http get $source.asset.url | save --raw $download } catch {|e|
+        error make {msg: $"cannot download ($source.asset.url): ($e.msg)"}
+      }
       # GitHub serves the .sha256 as binary; decode before treating it as text.
-      let want = (http get $source.sum | decode utf-8 | str trim | split row " " | first)
+      let want = try { http get $source.sum | decode utf-8 | str trim | split row " " | first } catch {|e|
+        error make {msg: $"cannot download ($source.sum): ($e.msg)"}
+      }
       if $want != (open --raw $download | hash sha256) {
         error make {msg: $"Checksum mismatch for ($source.asset.name) — refusing to install."}
       }
@@ -136,12 +142,12 @@ def main [
     if ($found | path type) != "file" {
       error make {msg: $"($exe) is missing from the archive, or is not a regular file."}
     }
-    mv $found $bin
+    try { mv $found $bin } catch {|e| error make {msg: $"cannot write ($bin): ($e.msg)"} }
     null
   } catch {|e| $e }
   rm --recursive --force $stage
   if $failure != null {
-    error make {msg: $"Install failed, nothing changed: ($failure.msg)"}
+    error make {msg: $"Install failed: ($failure.msg)"}
   }
 
   # Keep a copy beside the binary: re-running after a Nushell upgrade is then a
