@@ -92,6 +92,9 @@ jobs:
       - run: ./scripts/test-nu-compat.sh "$NU_VERSION"
         env:
           NU_VERSION: ${{ matrix.nu }}
+      # The installer's selection and failure paths, which the install below
+      # and the release workflow never take: crafted API answers, bad archives.
+      - run: nu scripts/test-install.nu
 
       # The installer against the real GitHub releases, as a colleague runs it.
       # A minor listed before its variant is published only warns: the list
