@@ -17,10 +17,35 @@ pub struct Cached {
     pub entries: Vec<Entry>,
 }
 
-struct Slot {
-    path: PathBuf,
+/// What tells a file apart from the one that was opened. Size and mtime alone miss a
+/// replacement that keeps both, as a sync client or `rsync -t` does. On Unix the inode
+/// and the ctime close that gap: a rename brings another inode, a rewrite in place moves
+/// the ctime, and no tool can set the ctime back. Windows offers nothing comparable in
+/// stable Rust, so there the check stays at size and mtime.
+#[derive(PartialEq, Eq)]
+struct Stamp {
     size: u64,
     modified: SystemTime,
+    #[cfg(unix)]
+    identity: (u64, u64, i64, i64),
+}
+
+impl Stamp {
+    fn of(meta: &std::fs::Metadata) -> std::io::Result<Self> {
+        #[cfg(unix)]
+        use std::os::unix::fs::MetadataExt;
+        Ok(Self {
+            size: meta.len(),
+            modified: meta.modified()?,
+            #[cfg(unix)]
+            identity: (meta.dev(), meta.ino(), meta.ctime(), meta.ctime_nsec()),
+        })
+    }
+}
+
+struct Slot {
+    path: PathBuf,
+    stamp: Stamp,
     cached: Cached,
 }
 
@@ -62,9 +87,8 @@ impl ArchiveCache {
         f: impl FnOnce(&mut Cached) -> T,
     ) -> Result<T, ArchiveError> {
         let found = self.slots.iter().position(|s| s.path == path);
-        let stat = std::fs::metadata(path).and_then(|m| Ok((m.len(), m.modified()?)));
-        let (size, modified) = match stat {
-            Ok(stat) => stat,
+        let stamp = match std::fs::metadata(path).and_then(|m| Stamp::of(&m)) {
+            Ok(stamp) => stamp,
             Err(e) => {
                 if let Some(i) = found {
                     self.slots.remove(i);
@@ -73,9 +97,7 @@ impl ArchiveCache {
             }
         };
         let slot = match found {
-            Some(i) if self.slots[i].size == size && self.slots[i].modified == modified => {
-                self.slots.remove(i)
-            }
+            Some(i) if self.slots[i].stamp == stamp => self.slots.remove(i),
             found => {
                 if let Some(i) = found {
                     self.slots.remove(i);
@@ -90,8 +112,7 @@ impl ArchiveCache {
                 let entries = entries(&zip);
                 Slot {
                     path: path.to_path_buf(),
-                    size,
-                    modified,
+                    stamp,
                     cached: Cached { zip, entries },
                 }
             }
@@ -160,6 +181,29 @@ mod tests {
         write_zip(&path, &["one.txt", "two.txt"]);
         assert_eq!(names(&mut cache, &path), ["one.txt", "two.txt"]);
         assert_eq!(cache.opens(), 2);
+    }
+
+    /// A sync client or `rsync -t` replaces a file and keeps the source's mtime. When
+    /// the size happens to match too, only the file's identity tells the two apart.
+    #[cfg(unix)]
+    #[test]
+    fn reopens_after_replacement_with_same_size_and_mtime() {
+        let dir = scratch("replace");
+        let path = dir.join("a.zip");
+        write_zip(&path, &["one.txt"]);
+        let mut cache = ArchiveCache::new(16);
+        assert_eq!(names(&mut cache, &path), ["one.txt"]);
+        let next = dir.join("next.zip");
+        write_zip(&next, &["two.txt"]);
+        let old = std::fs::metadata(&path).expect("stat");
+        assert_eq!(std::fs::metadata(&next).expect("stat").len(), old.len());
+        File::options()
+            .write(true)
+            .open(&next)
+            .and_then(|f| f.set_modified(old.modified()?))
+            .expect("copy mtime");
+        std::fs::rename(&next, &path).expect("replace");
+        assert_eq!(names(&mut cache, &path), ["two.txt"]);
     }
 
     #[test]

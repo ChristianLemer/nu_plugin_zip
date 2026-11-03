@@ -72,7 +72,9 @@ Reading many members costs one process, not one per member. Measured on 85 membe
 costs about a sixth of a `tar -xOf`, and most of that is decompression.
 
 To make that hold, the plugin keeps opened archives — up to 16, keyed by path and reopened when
-the file's size or modification time changes — and keeps itself running while it holds one.
+the file changes: its size or modification time, and on Linux and macOS its identity too, so
+a file replaced by a sync client is never served from the old copy — and keeps itself running
+while it holds one.
 Nushell normally stops a plugin after 10 seconds idle; this one opts out of that while its cache
 is not empty, so a `plugin_gc` setting for `zip` in your config has no effect then. `plugin stop
 zip` still stops it.

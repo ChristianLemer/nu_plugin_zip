@@ -78,9 +78,12 @@ The plugin exists so that reading N members costs one process, not N.
   `set_gc_disabled(false)` when the cache empties. A user's `plugin_gc` setting for `zip`
   cannot override this; document it in the README.
 - **The index is read once.** Opened archives are cached, keyed by canonical path. Each call
-  re-reads the path's size and modification time (one `stat`); if either changed, the entry is
-  dropped and the archive reopened. At most **16** archives are cached, least recently used
-  evicted first.
+  re-reads the path's metadata (one `stat`); if the file changed, the entry is dropped and the
+  archive reopened. Changed means another size or modification time, and on Unix another
+  inode or ctime too: a sync client or `rsync -t` replaces a file and keeps its mtime, and
+  when the size matches as well, only the file's identity tells the two apart. Windows offers
+  no equivalent in stable Rust, so there the check stays at size and mtime. At most **16**
+  archives are cached, least recently used evicted first.
 - **A member read decompresses that member only.**
 
 ## Nushell version compatibility
