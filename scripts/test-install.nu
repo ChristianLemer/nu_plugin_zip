@@ -51,36 +51,45 @@ def main [] {
   let staged = {|| ls $nu.temp-dir | where name =~ 'nu_plugin_zip-' | get name }
   let before = (do $staged)
 
-  mkdir ($work | path join good)
-  "#!/bin/sh\n" | save ($work | path join good $exe)
-  tar -czf ($work | path join good.tar.gz) -C ($work | path join good) $exe
-  let run = (do $install ($work | path join good.tar.gz) ($work | path join dest))
-  assert equal $run.exit_code 0 $run.stderr
-  assert equal (($work | path join dest $exe) | path type) file
-  if $nu.os-info.name != "windows" {
-    mkdir ($work | path join link)
-    ^ln -s /etc/hostname ($work | path join link $exe)
-    tar -czf ($work | path join link.tar.gz) -C ($work | path join link) $exe
-    let run = (do $install ($work | path join link.tar.gz) ($work | path join dest2))
-    assert ($run.exit_code != 0) "a symlink must not be installed as the plugin"
-    assert (not (($work | path join dest2 $exe) | path exists --no-symlink)) "the symlink must not reach the destination"
-  }
-  if $nu.os-info.name != "windows" {
-    # A failure keeps its detail: which file could not be written, not only why.
-    let locked = ($work | path join locked)
-    mkdir $locked
-    ^chmod 555 $locked
-    let run = (do $install ($work | path join good.tar.gz) $locked)
-    ^chmod 755 $locked
-    assert ($run.exit_code != 0) "an unwritable destination must fail"
-    assert ($run.stderr | str contains $locked) $"the error must name the destination:\n($run.stderr)"
-  }
+  # The work directory goes whatever happens: a failing assertion must not
+  # leave its archives behind.
+  let failure = try {
+    mkdir ($work | path join good)
+    "#!/bin/sh\n" | save ($work | path join good $exe)
+    tar -czf ($work | path join good.tar.gz) -C ($work | path join good) $exe
+    let run = (do $install ($work | path join good.tar.gz) ($work | path join dest))
+    assert equal $run.exit_code 0 $run.stderr
+    assert equal (($work | path join dest $exe) | path type) file
+    if $nu.os-info.name != "windows" {
+      mkdir ($work | path join link)
+      ^ln -s /etc/hostname ($work | path join link $exe)
+      tar -czf ($work | path join link.tar.gz) -C ($work | path join link) $exe
+      let run = (do $install ($work | path join link.tar.gz) ($work | path join dest2))
+      assert ($run.exit_code != 0) "a symlink must not be installed as the plugin"
+      assert (not (($work | path join dest2 $exe) | path exists --no-symlink)) "the symlink must not reach the destination"
+    }
+    if $nu.os-info.name != "windows" {
+      # A failure keeps its detail: which file could not be written, not only why.
+      let locked = ($work | path join locked)
+      mkdir $locked
+      ^chmod 555 $locked
+      let run = (do $install ($work | path join good.tar.gz) $locked)
+      ^chmod 755 $locked
+      assert ($run.exit_code != 0) "an unwritable destination must fail"
+      assert ($run.stderr | str contains $locked) $"the error must name the destination:\n($run.stderr)"
+    }
 
-  "not an archive" | save ($work | path join bad.tar.gz)
-  let run = (do $install ($work | path join bad.tar.gz) ($work | path join dest3))
-  assert ($run.exit_code != 0) "a corrupt archive must fail"
+    "not an archive" | save ($work | path join bad.tar.gz)
+    let run = (do $install ($work | path join bad.tar.gz) ($work | path join dest3))
+    assert ($run.exit_code != 0) "a corrupt archive must fail"
 
-  assert equal (do $staged) $before "a failed install must not leave a staging directory behind"
+    assert equal (do $staged) $before "a failed install must not leave a staging directory behind"
+    null
+  } catch {|e| $e }
   rm -r -f $work
+  if $failure != null {
+    print --stderr $failure.rendered
+    exit 1
+  }
   print "install.nu ok"
 }
