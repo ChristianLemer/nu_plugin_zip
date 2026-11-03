@@ -119,7 +119,8 @@ jobs:
               # and no build for this architecture. The second is unreachable
               # while this job runs on x86 Linux only, and is the failure an ARM
               # leg would hit before the first release carrying an ARM archive.
-              *"No build for"*) echo "::warning::no published build yet for $NU_VERSION on this host"; exit 0 ;;
+              # Before the first release there is nothing to find at all.
+              *"No build for"*|*"No archives published"*) echo "::warning::no published build yet for $NU_VERSION on this host"; exit 0 ;;
               *) exit 1 ;;
             esac
           fi
