@@ -54,14 +54,23 @@ def main [
     let auth = if ($env.GITHUB_TOKEN? | default "" | is-empty) { [] } else {
       [Authorization $"Bearer ($env.GITHUB_TOKEN)"]
     }
-    let assets = (candidates --prerelease=$prerelease
-      (http get --headers $auth $"https://api.github.com/repos/($repo)/releases?per_page=100"))
+    let releases = (http get --headers $auth $"https://api.github.com/repos/($repo)/releases?per_page=100")
+    let assets = (candidates --prerelease=$prerelease $releases)
     let esc = ($minor | str replace --all "." '\.')
-    let hit = ($targets | each {|t|
-        $assets | where name =~ ('nu' + $esc + '\.[0-9]+-' + $t + '\.(tar\.gz|zip)$')
-      } | flatten)
+    let builds_for = {|list| $targets | each {|t|
+        $list | where name =~ ('nu' + $esc + '\.[0-9]+-' + $t + '\.(tar\.gz|zip)$')
+      } | flatten }
+    let hit = (do $builds_for $assets)
 
     if ($hit | is-empty) {
+      # Only a pre-release may fit, and a tester's first tag is often one:
+      # say so rather than claim there is nothing.
+      if not $prerelease and (do $builds_for (candidates --prerelease $releases) | is-not-empty) {
+        error make {
+          msg: $"No build for Nushell ($minor) on ($key) except a pre-release."
+          help: "Re-run with --prerelease to install it."
+        }
+      }
       # Two different failures, and they need different answers. The
       # architecture may have no build at all, or only this Nushell minor may
       # be missing for it. Telling someone on an unbuilt architecture to
