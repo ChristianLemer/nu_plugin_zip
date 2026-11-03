@@ -3,8 +3,6 @@
 **Browse zip archives from [Nushell](https://www.nushell.sh) like folders — `ls`, `glob` and
 `open` inside a zip, in memory, never touching disk.**
 
-> **Status: in development.** Nothing is released yet. The design is in [SPEC.md](SPEC.md).
-
 ```nushell
 zip ls   data.zip reports                  # like ls, inside the archive
 zip glob data.zip 'reports/**/*.json'      # like glob
