@@ -67,6 +67,13 @@ $table | to zip --mtime 2026-01-01 | save -f $a
 $table | to zip --mtime 2027-01-01 | save -f ($d | path join m2.zip)
 assert equal (zip ls $a | where name == a.txt | get 0.modified | format date "%Y-%m-%d") "2026-01-01" "--mtime must set the entry date"
 assert ((open --raw $a) != (open --raw ($d | path join m2.zip))) "different --mtime must give different bytes"
+let tree = {"mybag/": {"bagit.txt": "BagIt-Version: 1.0", "data/": {"a.nuon": [[x]; [1]], "meta.nuon": {k: 2}, "forms/": {}}}}
+$tree | to zip | save ($d | path join bag.zip)
+assert equal (zip ls ($d | path join bag.zip) mybag/data | get name | sort) [mybag/data/a.nuon mybag/data/forms mybag/data/meta.nuon]
+assert equal (zip open ($d | path join bag.zip) mybag/data/meta.nuon) {k: 2}
+let forgot = (try { {data: {x: 1}} | to zip; "" } catch {|e| $e.rendered })
+assert ($forgot | str contains "end it with /") "a forgotten / must say so"
+assert (try { {"a/": "x"} | to zip; false } catch { true }) "a directory key needs a record"
 assert (try { [[name content]; [Makefile [1]]] | to zip; false } catch { true }) "a value without an extension must be an error"
 assert (try { [[name content]; [x.nosuchformat [1]]] | to zip; false } catch { true }) "a value without a `to` command must be an error"
 assert (try { [[name content]; [../x a]] | to zip; false } catch { true }) "a `..` name must be an error"

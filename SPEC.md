@@ -29,7 +29,7 @@ in the same words. A change that needs a temporary file is a change to this spec
 | `zip open <archive> <path>` | nothing → any | one member, parsed by its extension, like `open` |
 | `zip open --raw <archive> ...paths` | nothing → binary, or table | one member as binary; several as `[name content]` rows, in one call |
 | `from zip` | binary → table | every file member: `name type size modified content`. This is what `open x.zip` calls |
-| `to zip` | table → binary | an archive in memory from `name content` rows, the inverse of `from zip`. This is what `save x.zip` calls |
+| `to zip` | table or record → binary | an archive in memory from `name content` rows, the inverse of `from zip`, or from a record shaped like a tree. This is what `save x.zip` calls |
 
 **`zip ls` columns** match `ls`: `name` (full path inside the archive), `type` (`file` or
 `dir`), `size` (filesize, uncompressed), `modified` (datetime). Directories the archive only
@@ -62,6 +62,28 @@ the empty archive, 22 bytes. Binary input comes back unchanged: `save` sends a b
 through `to <ext>` as it does any other, so `... | to zip | save x.zip` hands `to zip` its own
 archive a second time; `--mtime` has no effect there. The archive is built in memory. Every
 error from `to zip` carries a label on the call, so Nushell's output points at it.
+
+**`to zip` takes a record as a tree.** The key says what an entry is, the value what it holds,
+so that a hand-written fixture and generated `.nuon` data read the same way, and the value's
+type never has to guess whether a record is a directory or a file to serialize:
+
+| Key | Value | Becomes |
+|---|---|---|
+| ends in `/` | a record | a directory, the record's entries inside it |
+| no trailing `/` | string, binary | a file, as is |
+| no trailing `/` | anything else, record included | a file, serialized by extension |
+
+- A key containing `/` elsewhere is split into a path: `{"data/a.json": …}` equals
+  `{"data/": {"a.json": …}}`.
+- A key ending in `/` whose value is not a record is an error.
+- A key ending in more than one `/` (`{"a//": {}}`) is an error, as `a//b` is.
+- A key with no extension and a value that is neither a string nor binary is an error: the
+  name has no extension to pick a format. When the value is a record (`{data: {…}}`, most
+  often a forgotten `/`), the error adds: end it with `/` if it is a directory.
+- Order is the record's key order, depth-first. A record carries no dates: `--mtime`, else
+  the current time. Duplicates and shared parents are handled as for rows, and names follow
+  the rules for every archive written, below; an error names the key path
+  (`mybag/ › data/ › a.nuon`).
 
 **Rules for every archive written.** Entry names use `/` on every host and are stored as UTF-8.
 Refused: an empty name; an absolute one (`/x`, `//x`, `C:/x`, `C:x`); one containing `\`,

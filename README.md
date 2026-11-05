@@ -74,6 +74,14 @@ open data.zip | where name !~ '^tmp/' | save trimmed.zip
 $table | to zip --mtime 2026-01-01
 ```
 
+A record works as a tree, for hand-written fixtures and data generated in memory. A key ending
+in `/` is a directory holding a record; any other key is a file, and a non-text value goes
+through the `to` command its extension names:
+
+```nushell
+{"mybag/": {"bagit.txt": "BagIt-Version: 1.0", "data/": {"a.nuon": $rows, "forms/": {}}}} | to zip | save bag.zip
+```
+
 Member paths are relative to the archive root and accept a leading `./` or `/`. The archive
 path is relative to your current directory, as for any command.
 

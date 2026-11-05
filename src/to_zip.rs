@@ -1,13 +1,14 @@
-//! `to zip`: a table of `name` and `content`, the shape `from zip` returns, written as an
-//! archive in memory. Content that is neither a string nor binary goes through the
-//! `to <ext>` its name's extension picks, as `save` would.
+//! `to zip`: a table of `name` and `content`, the shape `from zip` returns, or a record
+//! shaped like a tree, written as an archive in memory. Content that is neither a string
+//! nor binary goes through the `to <ext>` its name's extension picks, as `save` would.
 
 use std::io::Cursor;
 
 use chrono::{Local, NaiveDateTime};
 use nu_plugin::{EngineInterface, EvaluatedCall, SimplePluginCommand};
 use nu_protocol::{
-    Category, Example, LabeledError, PipelineData, Signature, Span, SyntaxShape, Type, Value,
+    Category, Example, LabeledError, PipelineData, Record, Signature, Span, SyntaxShape, Type,
+    Value,
 };
 
 use crate::write::{check_mtime, Writer};
@@ -45,14 +46,15 @@ impl SimplePluginCommand for ToZip {
     }
 
     fn description(&self) -> &str {
-        "Write a table of name and content as zip bytes, the inverse of from zip"
+        "Write a table of name and content, or a record shaped like a tree, as zip bytes"
     }
 
     fn extra_description(&self) -> &str {
         "This is what `save x.zip` calls. A string is written as UTF-8, binary as is; any \
          other content goes through the `to` command its extension names, so a.nuon goes \
          through `to nuon`. A name ending in / is a directory. Parents get their own \
-         entries. `modified` is read when present; other columns are ignored. The archive \
+         entries. A record is a tree: a key ending in / is a directory holding a record, any \
+         other key a file. `modified` is read when present; other columns are ignored. The archive \
          is built in memory; nothing is written to disk. Binary input is taken to be an \
          archive already and comes back unchanged, so `to zip | save x.zip` works."
     }
@@ -63,6 +65,7 @@ impl SimplePluginCommand for ToZip {
                 (Type::table(), Type::Binary),
                 (Type::list(Type::Any), Type::Binary),
                 (Type::Nothing, Type::Binary),
+                (Type::record(), Type::Binary),
                 (Type::Binary, Type::Binary),
             ])
             .named(
@@ -83,6 +86,11 @@ impl SimplePluginCommand for ToZip {
             Example {
                 description: "An archive holding one file, in its directory",
                 example: "[[name content]; [notes/a.txt hello]] | to zip",
+                result: None,
+            },
+            Example {
+                description: "A tree written by hand, with data stored as nuon",
+                example: "{\"bag/\": {\"a.txt\": \"hi\", \"data/\": {\"r.nuon\": [[x]; [1]], \"empty/\": {}}}} | to zip",
                 result: None,
             },
             Example {
@@ -114,26 +122,84 @@ impl SimplePluginCommand for ToZip {
             None => None,
         };
         let fail = |e: LabeledError| e.with_label("refused here", call.head);
-        let rows = match input {
+        let items = match input {
             // `save x.zip` sends a binary value through `to zip` too, so the bytes of
             // `... | to zip | save x.zip` arrive here a second time: they are the archive.
             // `--mtime` has no effect on them.
             Value::Binary { .. } => return Ok(input.clone()),
-            Value::Nothing { .. } => &[][..],
-            Value::List { vals, .. } => vals.as_slice(),
+            Value::Nothing { .. } => Vec::new(),
+            Value::List { vals, .. } => from_rows(vals).map_err(fail)?,
+            Value::Record { val, .. } => from_record(val).map_err(fail)?,
             other => {
                 return Err(LabeledError::new(format!(
-                    "expected a table of name and content, got {}",
+                    "expected a table or a record, got {}",
                     other.get_type()
                 ))
-                .with_label("not a table", other.span()))
+                .with_label("not a table or a record", other.span()))
             }
         };
-        let items = from_rows(rows).map_err(fail)?;
         let items = serialize(engine, items, span).map_err(fail)?;
         let bytes = build(&items, mtime, now).map_err(fail)?;
         Ok(Value::binary(bytes, span))
     }
+}
+
+/// A record as items: the key says what an entry is, the value what it holds. Depth-first,
+/// in key order.
+pub(crate) fn from_record(record: &Record) -> Result<Vec<Item>, LabeledError> {
+    let mut items = Vec::new();
+    walk(record, "", "", &mut items)?;
+    Ok(items)
+}
+
+fn walk(
+    record: &Record,
+    prefix: &str,
+    origin: &str,
+    items: &mut Vec<Item>,
+) -> Result<(), LabeledError> {
+    for (key, value) in record {
+        let path = format!("{prefix}{key}");
+        let origin = if origin.is_empty() {
+            format!("`{key}`")
+        } else {
+            format!("{origin} \u{203a} `{key}`")
+        };
+        if let Some(dir) = key.strip_suffix('/') {
+            // The writer strips one trailing `/` more, so `a//` would quietly become `a`.
+            if dir.ends_with('/') {
+                return Err(LabeledError::new(format!(
+                    "{origin}: a directory key ends in one /, not several"
+                )));
+            }
+            let Value::Record { val, .. } = value else {
+                return Err(LabeledError::new(format!(
+                    "{origin}: a key ending in / is a directory and needs a record, not {}",
+                    value.get_type()
+                )));
+            };
+            items.push(Item {
+                name: format!("{prefix}{dir}"),
+                content: Content::Dir,
+                modified: None,
+                origin: origin.clone(),
+            });
+            walk(val, &path, &origin, items)?;
+        } else {
+            let content = match value {
+                Value::String { val, .. } => Content::Bytes(val.clone().into_bytes()),
+                v @ Value::Binary { .. } => Content::Bytes(binary_bytes(v)),
+                other => Content::Value(other.clone()),
+            };
+            items.push(Item {
+                name: path,
+                content,
+                modified: None,
+                origin,
+            });
+        }
+    }
+    Ok(())
 }
 
 /// The rows as items, in order. Only `name`, `content` and `modified` are read.
@@ -213,11 +279,23 @@ pub(crate) fn serialize(
             let Content::Value(value) = item.content else {
                 return Ok(item);
             };
-            let bad =
-                |msg: String| LabeledError::new(format!("{}: `{}`: {msg}", item.origin, item.name));
+            // A top-level record key is its own origin; a row needs the name beside it.
+            let at = if item.origin == format!("`{}`", item.name) {
+                item.origin.clone()
+            } else {
+                format!("{}: `{}`", item.origin, item.name)
+            };
+            let bad = |msg: String| LabeledError::new(format!("{at}: {msg}"));
             let kind = value.get_type();
             let Some(ext) = extension(&item.name) else {
-                return Err(bad(format!("no extension to pick a format for a {kind}")));
+                return Err(if matches!(value, Value::Record { .. }) {
+                    bad(
+                        "no extension to pick a format; end it with `/` if it is a directory"
+                            .into(),
+                    )
+                } else {
+                    bad(format!("no extension to pick a format for a {kind}"))
+                });
             };
             let Some(decl) = engine.find_decl(format!("to {ext}"))? else {
                 return Err(bad(format!(
@@ -396,6 +474,100 @@ mod tests {
             let m = message(&e);
             assert!(m.contains("row 1") && m.contains(why), "{bad:?}: {m}");
         }
+    }
+
+    fn rec(pairs: Vec<(&str, Value)>) -> Value {
+        Value::record(
+            pairs.into_iter().map(|(k, v)| (k.to_string(), v)).collect(),
+            s(),
+        )
+    }
+
+    fn text(v: &str) -> Value {
+        Value::string(v, s())
+    }
+
+    fn items_of(v: &Value) -> Result<Vec<Item>, LabeledError> {
+        from_record(v.as_record().expect("a record"))
+    }
+
+    #[test]
+    fn record_tree_becomes_items() {
+        let tree = rec(vec![(
+            "mybag/",
+            rec(vec![
+                ("bagit.txt", text("BagIt-Version: 1.0")),
+                (
+                    "data/",
+                    rec(vec![
+                        ("a.nuon", Value::list(vec![Value::int(1, s())], s())),
+                        ("meta.nuon", rec(vec![("k", Value::int(2, s()))])),
+                        ("forms/", rec(vec![])),
+                    ]),
+                ),
+            ]),
+        )]);
+        let items = items_of(&tree).expect("items");
+        let names: Vec<_> = items.iter().map(|i| i.name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "mybag",
+                "mybag/bagit.txt",
+                "mybag/data",
+                "mybag/data/a.nuon",
+                "mybag/data/meta.nuon",
+                "mybag/data/forms"
+            ]
+        );
+        let kinds: Vec<_> = items
+            .iter()
+            .map(|i| match i.content {
+                Content::Dir => "dir",
+                Content::Bytes(_) => "bytes",
+                Content::Value(_) => "value",
+            })
+            .collect();
+        assert_eq!(kinds, ["dir", "bytes", "dir", "value", "value", "dir"]);
+        assert!(items.iter().all(|i| i.modified.is_none()));
+        assert_eq!(
+            items[3].origin,
+            "`mybag/` \u{203a} `data/` \u{203a} `a.nuon`"
+        );
+    }
+
+    #[test]
+    fn path_keys_split() {
+        let flat = rec(vec![("data/a.json", text("x"))]);
+        let nested = rec(vec![("data/", rec(vec![("a.json", text("x"))]))]);
+        let at = Some(at(2026, 1, 1));
+        let bytes = |v: &Value| build(&items_of(v).expect("items"), at, self::at(2030, 1, 1));
+        assert_eq!(bytes(&flat).expect("flat"), bytes(&nested).expect("nested"));
+    }
+
+    #[test]
+    fn dir_key_ends_in_one_slash() {
+        let e = items_of(&rec(vec![("a//", rec(vec![]))])).expect_err("refused");
+        let m = message(&e);
+        assert!(m.contains("a//") && m.contains("one /, not several"), "{m}");
+    }
+
+    #[test]
+    fn dir_key_needs_a_record() {
+        let e = items_of(&rec(vec![("a/", text("x"))])).expect_err("refused");
+        let m = message(&e);
+        assert!(m.contains("a/") && m.contains("needs a record"), "{m}");
+    }
+
+    #[test]
+    fn duplicate_across_forms() {
+        let v = rec(vec![
+            ("a/b", text("x")),
+            ("a/", rec(vec![("b", text("y"))])),
+        ]);
+        let items = items_of(&v).expect("items");
+        let e = build(&items, None, at(2026, 1, 1)).expect_err("duplicate");
+        assert!(message(&e).contains('b'), "{}", message(&e));
     }
 
     #[test]
