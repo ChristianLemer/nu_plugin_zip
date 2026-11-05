@@ -25,7 +25,7 @@ in the same words. A change that needs a temporary file is a change to this spec
 | Command | Input → output | Does |
 |---|---|---|
 | `zip ls <archive> [dir]` | nothing → table | the direct children of `dir` inside the archive (root if omitted), like `ls` |
-| `zip glob <archive> <pattern>` | nothing → list\<string\> | member paths matching `pattern`, like `glob` |
+| `zip glob <archive> <pattern>` | nothing → list\<string\> | member paths matching `pattern`, like `glob`; `--no-dir` leaves directories out |
 | `zip open <archive> <path>` | nothing → any | one member, parsed by its extension, like `open` |
 | `zip open --raw <archive> ...paths` | nothing → binary, or table | one member as binary; several as `[name content]` rows, in one call |
 | `from zip` | binary → table | every file member: `name type size modified content`. This is what `open x.zip` calls |
