@@ -8,7 +8,7 @@ edition = "2021"
 # included — says so plainly instead of failing deep inside a dependency. Raise
 # it when a newer minor is added.
 rust-version = "1.96.1"
-description = "Browse zip archives from Nushell like folders — ls, glob and open inside a zip, in memory, never touching disk."
+description = "Browse zip archives from Nushell like folders — ls, glob and open inside a zip, in memory, never extracting; and write them with zip create and to zip."
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/ChristianLemer/nu_plugin_zip"
@@ -38,6 +38,8 @@ chrono = "0.4"
 # zstd, bzip2 and lzma members are reported as unsupported, not linked in.
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs", "deflate64", "chrono"] }
 globset = "0.4"
+# `zip create` writes through a temporary file beside `dest`, renamed into place. Pure Rust.
+tempfile = "3"
 
 [profile.release]
 opt-level = 3

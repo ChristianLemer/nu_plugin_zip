@@ -79,6 +79,35 @@ assert (try { [[name content]; [x.nosuchformat [1]]] | to zip; false } catch { t
 assert (try { [[name content]; [../x a]] | to zip; false } catch { true }) "a `..` name must be an error"
 rm -r -f $d
 
+# zip create: a folder on disk, written through a temporary file renamed into place.
+let d = (mktemp --directory)
+mkdir ($d | path join bag/data/empty)
+"BagIt-Version: 1.0" | save ($d | path join bag/bagit.txt)
+{k: 1} | save ($d | path join bag/data/a.json)
+let bz = ($d | path join bag.zip)
+zip create $bz ($d | path join bag)
+assert equal (zip ls $bz | get name) [bag]
+assert equal (zip glob $bz '**/*' | length) 5
+zip create $bz ($d | path join bag) --mtime 2026-01-01 --force
+let first = (open --raw $bz)
+zip create $bz ($d | path join bag) --mtime 2026-01-01 --force
+assert equal (open --raw $bz) $first "--mtime must give the same bytes on every run"
+assert (try { zip create $bz ($d | path join bag); false } catch { true }) "an existing dest needs --force"
+assert equal (open --raw $bz) $first "a refused dest must be left as it was"
+zip create ($d | path join two.zip) ($d | path join bag) ($d | path join bag/bagit.txt)
+assert equal (zip ls ($d | path join two.zip) | get name) [bag bagit.txt]
+zip create ($d | path join empty.zip)
+assert equal (ls ($d | path join empty.zip) | get 0.size) 22B
+# The cache holds bag.zip open; replacing it must work, and be seen.
+zip ls $bz | ignore
+"x" | save ($d | path join bag/new.txt)
+zip create $bz ($d | path join bag) --force
+assert equal (zip glob $bz '**/*' | length) 6
+assert (try { zip create ($d | path join bag) ($d | path join bag/bagit.txt) --force; false } catch { true }) "a directory as dest must be an error"
+assert (try { zip create ($d | path join nodir/x.zip) ($d | path join bag); false } catch { true }) "a missing parent must be an error"
+assert equal (ls -a $d | where name =~ partial | length) 0 "no temporary file may be left behind"
+rm -r -f $d
+
 # The archive argument resolves against Nushell's directory, not the plugin's.
 do {
   cd $fixtures
@@ -96,17 +125,19 @@ assert equal (plugin list | where name == zip | get 0.pid) $pid "the plugin was 
 
 # The examples each command's --help shows. They are read back from Nushell
 # rather than copied here, so the help text and this check cannot drift apart.
-# Each runs in a fresh directory holding the fixture as archive.zip, in a child
-# Nushell loading this same plugin through a throwaway registry, so a
-# registered build cannot answer in its place.
+# Each runs in a fresh directory holding the fixture as archive.zip and a
+# folder/ with one file, in a child Nushell loading this same plugin through
+# a throwaway registry, so a registered build cannot answer in its place.
 let plugin = (plugin list | where name == zip | get 0.filename)
-let commands = (scope commands | where name in ["zip ls" "zip glob" "zip open" "from zip" "to zip"])
-assert equal ($commands | length) 5
+let commands = (scope commands | where name in ["zip ls" "zip glob" "zip open" "from zip" "to zip" "zip create"])
+assert equal ($commands | length) 6
 for cmd in $commands {
   assert ($cmd.examples | is-not-empty) $"`($cmd.name)` declares no examples"
   for ex in $cmd.examples {
     let dir = (mktemp --directory)
     cp $z ($dir | path join archive.zip)
+    mkdir ($dir | path join folder)
+    "hello" | save ($dir | path join folder/a.txt)
     let script = $"cd r#'($dir)'#; ($ex.example) | describe"
     let run = (^$nu.current-exe --no-config-file --plugin-config ($dir | path join plugins.msgpackz) --plugins $plugin -c $script | complete)
     rm -r -f $dir
