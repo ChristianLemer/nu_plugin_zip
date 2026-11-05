@@ -1,6 +1,7 @@
 pub mod archive;
 pub mod cache;
 mod from_zip;
+pub mod write;
 mod zip_glob;
 mod zip_ls;
 mod zip_open;
