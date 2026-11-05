@@ -74,6 +74,11 @@ impl ArchiveCache {
         self.slots.is_empty()
     }
 
+    /// Drops the archive at `path`, closing its file. A path not held is a no-op.
+    pub fn forget(&mut self, path: &Path) {
+        self.slots.retain(|s| s.path != path);
+    }
+
     /// Runs `f` on the archive at `path`, opening it unless a cached copy has the same
     /// size and modification time as the file now.
     ///
@@ -220,6 +225,20 @@ mod tests {
         assert_eq!(cache.opens(), 3, "the most recent stays cached");
         names(&mut cache, &paths[0]);
         assert_eq!(cache.opens(), 4, "the least recent was evicted");
+    }
+
+    #[test]
+    fn cache_forget_drops_the_slot() {
+        let dir = Scratch::new("forget");
+        let path = dir.join("a.zip");
+        write_zip(&path, &["one.txt"]);
+        let mut cache = ArchiveCache::new(16);
+        names(&mut cache, &path);
+        assert!(!cache.is_empty());
+        cache.forget(&path);
+        assert!(cache.is_empty());
+        cache.forget(&path);
+        assert!(cache.is_empty(), "forgetting an absent path is a no-op");
     }
 
     #[test]

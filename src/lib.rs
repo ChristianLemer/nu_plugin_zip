@@ -51,6 +51,20 @@ impl ZipPlugin {
         engine.set_gc_disabled(!cache.is_empty())?;
         result.map_err(|e| LabeledError::new(e.to_string()))
     }
+
+    /// Drops the archive at `path` from the cache, closing its file, so that it can be
+    /// replaced: on Windows a rename onto a file held open fails. The GC opt-out follows the
+    /// cache, as in [`Self::with_archive`].
+    ///
+    /// # Errors
+    ///
+    /// When the engine refuses the GC setting.
+    pub fn forget(&self, engine: &EngineInterface, path: &Path) -> Result<(), LabeledError> {
+        let mut cache = self.cache.lock().unwrap_or_else(PoisonError::into_inner);
+        cache.forget(path);
+        engine.set_gc_disabled(!cache.is_empty())?;
+        Ok(())
+    }
 }
 
 impl Default for ZipPlugin {
@@ -71,6 +85,7 @@ impl Plugin for ZipPlugin {
             Box::new(zip_open::ZipOpen),
             Box::new(from_zip::FromZip),
             Box::new(to_zip::ToZip),
+            Box::new(zip_create::ZipCreate),
         ]
     }
 }

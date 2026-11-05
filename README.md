@@ -1,13 +1,14 @@
 # nu_plugin_zip
 
 **Browse zip archives from [Nushell](https://www.nushell.sh) like folders — `ls`, `glob` and
-`open` inside a zip, in memory, never touching disk.**
+`open` inside a zip, in memory, never extracting; and write them with `zip create` and `to zip`.**
 
 ```nushell
 zip ls   data.zip reports                  # like ls, inside the archive
 zip glob data.zip 'reports/**/*.json'      # like glob
 zip open data.zip reports/2026.json        # like open: parsed by extension
 open data.zip                              # every member as a table, via `from zip`
+zip create bag.zip ./staged/mybag          # a folder on disk, as an archive
 ```
 
 Nushell has no archive commands. `open data.zip` gives you bytes, and the usual way out is to
@@ -82,14 +83,34 @@ through the `to` command its extension names:
 {"mybag/": {"bagit.txt": "BagIt-Version: 1.0", "data/": {"a.nuon": $rows, "forms/": {}}}} | to zip | save bag.zip
 ```
 
+**`zip create <dest> ...sources`** — files and directories on disk, written into a new archive.
+Each source lands at the archive root under its own name, as `cp -r` places it: a directory
+brings its whole tree, hidden files included, and every directory gets its own entry. To store a
+folder's contents without the folder, spread a `glob`. Symbolic links are refused, never
+followed. Files are streamed one at a time, so memory does not grow with the tree. An existing
+`dest` is refused unless `--force`, and `--mtime` gives the same bytes on every run:
+
+```nushell
+zip create bag.zip ./staged/mybag                     # one root: mybag/
+zip create flat.zip ...(glob ./staged/mybag/*)        # the folder's contents, without it
+zip create bag.zip ./staged/mybag --force --mtime 2026-01-01
+```
+
+The archive is written to a dot-named temporary file beside `dest`
+(`.bag.zip.<random>.partial`) and renamed into place, so a synced folder never sees half an
+archive. On any error the temporary file is removed and `dest` is left as it was.
+
 Member paths are relative to the archive root and accept a leading `./` or `/`. The archive
 path is relative to your current directory, as for any command.
 
-## Nothing touches disk
+## Nothing is extracted
 
-No command writes a file, not even a temporary one. Members are decompressed into memory and
-handed to Nushell as values, so the plugin is safe to use on data that must not be left behind
-in plaintext.
+**No command writes what it was not asked to write, and none extracts a member to disk.**
+Members are read into memory and handed to Nushell as values. `zip create` writes exactly
+one thing, the archive it is told to, through a temporary file beside it that is renamed
+into place. A change that writes anything else is a change to this spec, not a detail.
+
+So the plugin is safe to use on data that must not be left behind in plaintext.
 
 ## Stays loaded
 
