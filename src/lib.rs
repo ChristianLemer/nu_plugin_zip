@@ -3,6 +3,7 @@ pub mod cache;
 mod from_zip;
 mod to_zip;
 pub mod write;
+mod zip_create;
 mod zip_glob;
 mod zip_ls;
 mod zip_open;
