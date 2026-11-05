@@ -1,6 +1,7 @@
 pub mod archive;
 pub mod cache;
 mod from_zip;
+mod to_zip;
 pub mod write;
 mod zip_glob;
 mod zip_ls;
@@ -68,6 +69,7 @@ impl Plugin for ZipPlugin {
             Box::new(zip_glob::ZipGlob),
             Box::new(zip_open::ZipOpen),
             Box::new(from_zip::FromZip),
+            Box::new(to_zip::ToZip),
         ]
     }
 }

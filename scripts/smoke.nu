@@ -50,6 +50,28 @@ assert (try { zip open $z data; false } catch { true }) "a directory must be an 
 assert equal (open $z | length) 5
 assert equal (open $z | where name == readme.txt | get 0.content) 0x[68 65 6c 6c 6f 0a]
 
+# to zip: the inverse of from zip, in memory; `save x.zip` dispatches to it.
+let d = (mktemp --directory)
+assert equal ([] | to zip | bytes length) 22
+assert equal (open $z --raw | to zip) (open $z --raw) "binary input is an archive already, as `save` sends it"
+assert equal (open $z | to zip | from zip | select name content) (open $z | select name content)
+open $z | save ($d | path join b.zip)
+assert equal (zip ls ($d | path join b.zip) | get name) (zip ls $z | get name)
+[[name content]; [t.nuon [[x]; [1]]] [r.json {a: 1}]] | to zip | save ($d | path join s.zip)
+assert equal (zip open ($d | path join s.zip) t.nuon) [[x]; [1]]
+assert equal (zip open ($d | path join s.zip) r.json) {a: 1}
+let table = [[name content]; [a.txt hello] [d/ ""]]
+assert equal ($table | to zip --mtime 2026-01-01) ($table | to zip --mtime 2026-01-01)
+let a = ($d | path join m1.zip)
+$table | to zip --mtime 2026-01-01 | save -f $a
+$table | to zip --mtime 2027-01-01 | save -f ($d | path join m2.zip)
+assert equal (zip ls $a | where name == a.txt | get 0.modified | format date "%Y-%m-%d") "2026-01-01" "--mtime must set the entry date"
+assert ((open --raw $a) != (open --raw ($d | path join m2.zip))) "different --mtime must give different bytes"
+assert (try { [[name content]; [Makefile [1]]] | to zip; false } catch { true }) "a value without an extension must be an error"
+assert (try { [[name content]; [x.nosuchformat [1]]] | to zip; false } catch { true }) "a value without a `to` command must be an error"
+assert (try { [[name content]; [../x a]] | to zip; false } catch { true }) "a `..` name must be an error"
+rm -r -f $d
+
 # The archive argument resolves against Nushell's directory, not the plugin's.
 do {
   cd $fixtures
@@ -71,8 +93,8 @@ assert equal (plugin list | where name == zip | get 0.pid) $pid "the plugin was 
 # Nushell loading this same plugin through a throwaway registry, so a
 # registered build cannot answer in its place.
 let plugin = (plugin list | where name == zip | get 0.filename)
-let commands = (scope commands | where name in ["zip ls" "zip glob" "zip open" "from zip"])
-assert equal ($commands | length) 4
+let commands = (scope commands | where name in ["zip ls" "zip glob" "zip open" "from zip" "to zip"])
+assert equal ($commands | length) 5
 for cmd in $commands {
   assert ($cmd.examples | is-not-empty) $"`($cmd.name)` declares no examples"
   for ex in $cmd.examples {

@@ -165,7 +165,7 @@ fn parse(
 }
 
 /// The lowercased extension of the member's file name, if it has one.
-fn extension(name: &str) -> Option<String> {
+pub(crate) fn extension(name: &str) -> Option<String> {
     Path::new(name)
         .extension()
         .and_then(|e| e.to_str())
