@@ -29,6 +29,7 @@ in the same words. A change that needs a temporary file is a change to this spec
 | `zip open <archive> <path>` | nothing → any | one member, parsed by its extension, like `open` |
 | `zip open --raw <archive> ...paths` | nothing → binary, or table | one member as binary; several as `[name content]` rows, in one call |
 | `from zip` | binary → table | every file member: `name type size modified content`. This is what `open x.zip` calls |
+| `to zip` | table → binary | an archive in memory from `name content` rows, the inverse of `from zip`. This is what `save x.zip` calls |
 
 **`zip ls` columns** match `ls`: `name` (full path inside the archive), `type` (`file` or
 `dir`), `size` (filesize, uncompressed), `modified` (datetime). Directories the archive only
@@ -45,6 +46,34 @@ binary value, they would be refused by the parsers that take text, `from json` f
 `from <ext>` in scope the bytes come back as a string when they are valid UTF-8, binary
 otherwise, which is what `open` does. `--raw` skips parsing.
 
+**`to zip` serializes like `save`.** It reads `name`, `content` and, when present and not null,
+`modified`; other columns, such as the `type` and `size` of `from zip`, are ignored, so `open
+a.zip | to zip` round-trips. A string content is written as its UTF-8 bytes and binary as is.
+Any other value, records and tables included, goes through the `to <ext>` command its name's
+extension picks (`a.nuon` → `to nuon`), whichever is in scope, built-in or a plugin's, the way
+`zip open` parses by extension; its output, string or binary, is the content. No extension, or
+no `to <ext>` in scope, is an error naming the row and the name. A name ending in `/` is a
+directory, whose content must be absent, null or empty. A file row with no content, or a null
+one, is an error, not an empty file: a missing column is far more often a mistake upstream than
+a wish, and `""` says empty plainly. Rows are written in input order, every parent gets its own
+directory entry, and an entry's date is `--mtime` if given, else its `modified`, else the time
+of the call; `--mtime` makes the bytes the same on every run and every host. Empty input gives
+the empty archive, 22 bytes. Binary input comes back unchanged: `save` sends a binary value
+through `to <ext>` as it does any other, so `... | to zip | save x.zip` hands `to zip` its own
+archive a second time; `--mtime` has no effect there. The archive is built in memory. Every
+error from `to zip` carries a label on the call, so Nushell's output points at it.
+
+**Rules for every archive written.** Entry names use `/` on every host and are stored as UTF-8.
+Refused: an empty name; an absolute one (`/x`, `//x`, `C:/x`, `C:x`); one containing `\`,
+refused rather than converted; any `..` segment; an empty segment (`a//b`); a `.` segment,
+except one leading `./`, which is stripped. A name written twice, or as both a file and a
+directory, is refused too. Every parent directory gets its own entry, written once and before
+its children. A date is clamped into what a zip holds, 1980-01-01 00:00:00 to 2107-12-31
+23:59:58, and one outside is written as the nearest end; a `--mtime` outside 1980–2107 is an
+error instead, since it was typed. Modes are fixed, 0644 for files and 0755 for directories,
+and every entry is recorded as made on Unix, so the same input gives the same bytes on every
+host. Files are deflated and directories stored; a file of 4 GiB or more is written as zip64.
+
 **Paths** are relative to the archive root, use `/`, and accept a leading `./` or `/`. The
 archive argument is resolved against Nushell's current directory, not the plugin's.
 
@@ -57,8 +86,8 @@ the worst outcome.
 
 ## Out of scope
 
-- **Writing archives.** `to zip`, adding or deleting members. A different risk profile and a
-  different command set; revisit only with a concrete user.
+- **Modifying an existing archive: adding, replacing or deleting members.** A different risk
+  profile and a different command set; revisit only with a concrete user.
 - **Other formats.** tar, 7z, rar. The command prefix is `zip`, and a tar has no index, so a
   random-access read means a full scan — a different design.
 - **Encrypted members.** Reported as an error naming the member, never prompted for.

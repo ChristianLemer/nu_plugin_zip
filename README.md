@@ -61,6 +61,19 @@ file:
 http get https://example.com/bundle.zip | from zip | where name =~ '\.md$'
 ```
 
+**`to zip`** — the inverse of `from zip`, and what `save data.zip` calls: a table of `name` and
+`content` becomes an archive, in memory. A string is written as text, binary as is, and any
+other value through the `to` command its extension names, so a table under `rows.nuon` goes
+through `to nuon`. A name ending in `/` is a directory; a file row needs a content, `""` for an
+empty one. `modified` is kept when present, and `--mtime` gives every entry one date, for the
+same bytes on every run:
+
+```nushell
+[[name content]; [notes/a.txt hello] [data/rows.nuon $rows]] | to zip | save notes.zip
+open data.zip | where name !~ '^tmp/' | save trimmed.zip
+$table | to zip --mtime 2026-01-01
+```
+
 Member paths are relative to the archive root and accept a leading `./` or `/`. The archive
 path is relative to your current directory, as for any command.
 
@@ -128,7 +141,8 @@ zip open --raw data.zip config.json | decode | from json
 - **Other formats.** tar, 7z, rar: a tar has no index, so reading one member means scanning the
   whole file, a different design.
 
-Writing archives is out of scope too. [SPEC.md](SPEC.md) says why for each.
+Modifying an existing archive in place is out of scope too. [SPEC.md](SPEC.md) says why for
+each.
 
 ## Contributing
 
