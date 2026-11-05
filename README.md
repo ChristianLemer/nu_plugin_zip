@@ -28,10 +28,12 @@ zip ls data.zip reports/2026
 
 **`zip glob <archive> <pattern>`** — the paths matching a pattern, as `glob` would: `*` stays
 within one path segment, `**` crosses them, case matters, and paths use `/` on every host.
+Directories match too; `--no-dir` (`-D`) leaves them out.
 
 ```nushell
 zip glob data.zip 'reports/*'            # one level
 zip glob data.zip '**/*.csv'             # any depth
+zip glob data.zip '**/*' --no-dir        # every file
 ```
 
 **`zip open <archive> ...paths`** — members, parsed like `open` parses a file. A `.json` member

@@ -28,6 +28,8 @@ assert (try { zip ls $z nope; false } catch { true }) "a missing directory must 
 # zip glob: `*` stays in a segment, `**` crosses them.
 assert equal (zip glob $z 'data/**/*.csv') [data/deep/c.csv]
 assert equal (zip glob $z '*.txt') [readme.txt]
+assert equal (zip glob $z '**/*' --no-dir | length) 5
+assert ((zip glob $z '**/*') | any {|p| $p == data/deep})
 assert (try { zip glob $z '['; false } catch { true }) "an invalid pattern must be an error"
 
 # zip open: parsed by extension through the engine's own `from` commands.
