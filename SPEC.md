@@ -184,7 +184,9 @@ The plugin protocol version is a compile-time constant and Nushell rejects a plu
 caret match, so every Nushell minor is a hard break and one binary serves exactly one minor.
 The release carries one variant per supported minor, named by build metadata
 (`0.1.0+nu-0.115.1`). `supported-nu.txt` lists the minors; `AGENTS.md` holds the release
-procedure. One source tree serves every supported minor: prefer a fix that compiles everywhere
+procedure. Supporting a new minor is a patch release even when the source is unchanged: crates.io
+ignores build metadata and keeps one variant per semver, so only a new semver lets it carry the
+newest minor. One source tree serves every supported minor: prefer a fix that compiles everywhere
 over version-gated code.
 
 ## Open questions
